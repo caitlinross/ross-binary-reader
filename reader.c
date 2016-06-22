@@ -20,24 +20,28 @@ typedef struct {
     double efficiency;
 } gvt_line;
 
-void gvt_read(FILE *file, int num_kps);
+void gvt_read(FILE *file, FILE *output);
 void rt_read(FILE *file, int num_kps);
-void print_gvt_struct(gvt_line *line);
+void print_gvt_struct(FILE *output, gvt_line *line);
 
 int main(int argc, char **argv) 
 {
-    FILE *file;
+    FILE *file, *output;
+    char filename[1024];
     file = fopen(argv[1], "r");
+    sprintf(filename, "%s.csv", argv[1]);
+    output = fopen(filename, "w");
 
     int num_kps = atoi(argv[2]);
     int file_type = atoi(argv[3]); /* 0: GVT, 1: rt sampling  */
     if (file_type == GVT)
-        gvt_read(file, num_kps);
+        gvt_read(file, output);
 
     fclose(file);
+    fclose(output);
 }
 
-void gvt_read(FILE *file, int num_kps)
+void gvt_read(FILE *file, FILE *output)
 {
     int num_bytes_per_block = sizeof(tw_stat) * NUM_GVT_VALS + sizeof(tw_node) + sizeof(tw_stime) + sizeof(double) + sizeof(long long) * 2;
     tw_node id;
@@ -51,7 +55,7 @@ void gvt_read(FILE *file, int num_kps)
     while (!feof(file))
     {
         rc = fread(&myline, sizeof(gvt_line), 1, file);
-        print_gvt_struct(&myline);
+        print_gvt_struct(output, &myline);
     }
 }
 
@@ -59,11 +63,11 @@ void rt_read(FILE *file, int num_kps)
 {
 }
 
-void print_gvt_struct(gvt_line *line)
+void print_gvt_struct(FILE *output, gvt_line *line)
 {
     int i;
-    printf("%ld,%f,", line->id, line->ts);
+    fprintf(output, "%ld,%f,", line->id, line->ts);
     for (i = 0; i < NUM_GVT_VALS; i++)
-        printf("%llu,", line->values[i]);
-    printf("%lld,%lld,%f\n", line->nsend_net_remote, line->net_events, line->efficiency);
+        fprintf(output, "%llu,", line->values[i]);
+    fprintf(output, "%lld,%lld,%f\n", line->nsend_net_remote, line->net_events, line->efficiency);
 }
