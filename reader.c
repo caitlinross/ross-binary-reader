@@ -8,7 +8,7 @@
 #define RT 1
 #define NUM_GVT_VALS 11
 #define NUM_CYCLE_CTRS 11
-#define NUM_EV_CTRS 18
+#define NUM_EV_CTRS 16
 #define NUM_MEM 2
 #define NUM_KP 16
 
@@ -120,7 +120,8 @@ parse_opt (int key, char *arg, struct argp_state *state)
 void gvt_read(FILE *file, FILE *output)
 {
     gvt_line myline;
-
+    fprintf(output, "PE_ID,GVT,all_reduce_count,events_processed,events_aborted,events_rolled_back,event_ties,total_rollbacks,primary_rollbacks,"
+            "secondary_rollbacks,fossil_collects,network_sends,network_recvs,remote_events,net_events,efficiency\n");
     while (!feof(file))
     {
         fread(&myline, sizeof(gvt_line), 1, file);
@@ -130,12 +131,20 @@ void gvt_read(FILE *file, FILE *output)
 
 void rt_read(FILE *file, FILE *output)
 {
+    int i;
     rt_line myline;
-
+    fprintf(output, "PE_ID,real_TS,current_GVT,");
+    for (i = 0; i < NUM_KP; i++)
+        fprintf(output, "KP-%d_time_ahead_GVT,", i);
+    fprintf(output, "network_read_CC,gvt_CC,fossil_collect_CC,event_abort_CC,event_process_CC,pq_CC,rollback_CC,cancelq_CC,"
+            "avl_CC,buddy_CC,lz4_CC,aborted_events,pq_size,network_remote_sends,local_remote_sends,network_sends,network_recvs,"
+            "remote_rb,event_ties,fossil_collect_attempts,num_GVTs,events_processed,events_rolled_back,total_rollbacks,secondary_rollbacks,net_events,"
+            "primary_rb,mem_allocated,mem_wasted\n");
+    fread(&myline, sizeof(rt_line), 1, file);
     while (!feof(file))
     {
-        fread(&myline, sizeof(rt_line), 1, file);
         print_rt_struct(output, &myline);
+        fread(&myline, sizeof(rt_line), 1, file);
     }
 
 }
