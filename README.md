@@ -25,3 +25,7 @@ options, which are also explained here.
 -t --filetype is for the type of file, i.e. is the binary from the ROSS GVT data
 collection (filetype=0) or real time sampling data collection (filetype=1).
 
+File types:
+0 GVT collection
+1 RT collection
+2 event collection

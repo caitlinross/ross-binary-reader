@@ -9,8 +9,8 @@
 #include <argp.h>
 #endif
 
-#define GVT 0
-#define RT 1
+//#define GVT 0
+//#define RT 1
 #define NUM_GVT_VALS 11
 #define NUM_CYCLE_CTRS 11
 #define NUM_EV_CTRS 16
@@ -35,6 +35,7 @@ typedef double tw_stime;
 typedef unsigned long tw_peid;
 typedef unsigned long long tw_stat;
 typedef long tw_node;
+typedef uint64_t tw_lpid;
 #ifdef BGQ
 typedef unsigned long long tw_clock; // BGQ
 #else
@@ -60,11 +61,26 @@ typedef struct {
     size_t mem[NUM_MEM];
 } rt_line;
 
+typedef struct {
+    tw_lpid src_lp;
+    tw_lpid dest_lp;
+    tw_stime recv_ts_vt;
+    tw_stime recv_ts_rt;
+} event_line;
+
+typedef enum {
+    GVT,
+    RT,
+    EVENT
+} file_types;
+
 static error_t parse_opt (int key, char *arg, struct argp_state *state);
 void gvt_read(FILE *file, FILE *output);
 void rt_read(FILE *file, FILE *output);
+void event_read(FILE *file, FILE *output);
 void print_gvt_struct(FILE *output, gvt_line *line);
 void print_rt_struct(FILE *output, rt_line *line);
+void print_event_struct(FILE *output, event_line *line);
 
 static struct argp argp = { options, parse_opt, args_doc, doc };
 /*
@@ -93,6 +109,8 @@ int main(int argc, char **argv)
         gvt_read(file, output);
     if (args.filetype == RT)
         rt_read(file, output);
+    if (args.filetype == EVENT)
+        event_read(file, output);
 
     fclose(file);
     fclose(output);
@@ -154,6 +172,17 @@ void rt_read(FILE *file, FILE *output)
 
 }
 
+void event_read(FILE *file, FILE *output)
+{
+    event_line myline;
+    fprintf(output, "src_lp,dest_lp,recv_ts_vt,recv_ts_rt\n");
+    while (!feof(file))
+    {
+        fread(&myline, sizeof(event_line), 1, file);
+        print_event_struct(output, &myline);
+    }
+}
+
 void print_gvt_struct(FILE *output, gvt_line *line)
 {
     int i;
@@ -185,4 +214,9 @@ void print_rt_struct(FILE *output, rt_line *line)
         else
             fprintf(output, "\n");
     }
+}
+
+void print_event_struct(FILE *output, event_line *line)
+{
+    fprintf(output, "%"PRIu64",%"PRIu64",%f,%f\n", line->src_lp, line->dest_lp, line->recv_ts_vt, line->recv_ts_rt);
 }
