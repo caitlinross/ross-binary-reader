@@ -2,7 +2,12 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
+#include <inttypes.h>
+#ifdef MACOS
+#include "mac/argp.h"
+#else
 #include <argp.h>
+#endif
 
 #define GVT 0
 #define RT 1
@@ -168,7 +173,7 @@ void print_rt_struct(FILE *output, rt_line *line)
 #ifdef BGQ
         fprintf(output, "%llu,", line->cycles[i]);
 #else
-        fprintf(output, "%ld,", line->cycles[i]);
+        fprintf(output, "%"PRIu64",", line->cycles[i]);
 #endif
     for (i = 0; i < NUM_EV_CTRS; i++)
         fprintf(output, "%llu,", line->ev_counters[i]);

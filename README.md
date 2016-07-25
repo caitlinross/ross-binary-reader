@@ -5,14 +5,14 @@ ROSS and converts it to a CSV.
 
 ### Build
 
-Just type 'make' when you're in the reader directory.  As of right now, the only 
-change that should need to be made to the Makefile is the -DBGQ option.
-If the data you want to read was from a simulation ran on a BG/Q, leave this 
-flag in.  Otherwise if the data is from a sim ran on an x86 system, remove -DBGQ. 
+Just type 'make' when you're in the reader directory. 
+If you're running on Linux on an x86 system, no flags needed.
+If you're running this on a BG/Q, you need to add the -DBGQ flag to the Makefile.
+If you're running this on a Mac, add -DMACOS. 
 
 NOTE: Right now you can't read data created on a system with a different endianness
 from the system you are running the reader on (i.e., don't read BG/Q data while
-running the reader on an x86 system)
+running the reader on an x86 system).
 
 
 ### Running the reader
