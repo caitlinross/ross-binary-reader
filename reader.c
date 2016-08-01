@@ -61,12 +61,14 @@ typedef struct {
     size_t mem[NUM_MEM];
 } rt_line;
 
-typedef struct {
+typedef struct event_line event_line;
+struct event_line{
     tw_lpid src_lp;
     tw_lpid dest_lp;
     tw_stime recv_ts_vt;
     tw_stime recv_ts_rt;
-} event_line;
+    int event_type;
+} __attribute__((__packed__));
 
 typedef enum {
     GVT,
@@ -87,7 +89,7 @@ static struct argp argp = { options, parse_opt, args_doc, doc };
  * argv[1]: filename to read from
  * argv[2]: which type of file are you reading
  */
-int main(int argc, char **argv) 
+int main(int argc, char **argv)
 {
     FILE *file, *output;
     char filename[2048];
@@ -175,7 +177,7 @@ void rt_read(FILE *file, FILE *output)
 void event_read(FILE *file, FILE *output)
 {
     event_line myline;
-    fprintf(output, "src_lp,dest_lp,recv_ts_vt,recv_ts_rt\n");
+    fprintf(output, "src_lp,dest_lp,recv_ts_vt,recv_ts_rt,event_type\n");
     while (!feof(file))
     {
         fread(&myline, sizeof(event_line), 1, file);
@@ -218,5 +220,5 @@ void print_rt_struct(FILE *output, rt_line *line)
 
 void print_event_struct(FILE *output, event_line *line)
 {
-    fprintf(output, "%"PRIu64",%"PRIu64",%f,%f\n", line->src_lp, line->dest_lp, line->recv_ts_vt, line->recv_ts_rt);
+    fprintf(output, "%"PRIu64",%"PRIu64",%f,%f,%d\n", line->src_lp, line->dest_lp, line->recv_ts_vt, line->recv_ts_rt, line->event_type);
 }
