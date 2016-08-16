@@ -9,19 +9,20 @@
 #include <argp.h>
 #endif
 
-//#define GVT 0
-//#define RT 1
 #define NUM_GVT_VALS 11
 #define NUM_CYCLE_CTRS 11
 #define NUM_EV_CTRS 16
 #define NUM_MEM 2
 #define NUM_KP 16
+#define NUM_LP 8
+//#define NUM_LP 176
 
 static char doc[] = "Reader for the binary data collection files from ROSS";
 static char args_doc[] = "";
 static struct argp_option options[] = {
     {"filename",  'f',  "str",  0,  "path of file to read" },
-    {"filetype", 't',  "n",  0,  "type of file to read; 0: GVT data, 1: real time data" },
+    {"filetype", 't',  "n",  0,  "type of file to read; 0: GVT data, 1: real time data, 2: event data" },
+    {"granularity", 'g', "n", 0, "granularity of data collected; 0: PE, 1: KP/LP"},
     { 0 }
 };
 
@@ -29,6 +30,7 @@ struct arguments
 {
     char *filename;
     int filetype;
+    int granularity;
 };
 
 typedef double tw_stime;
@@ -51,6 +53,18 @@ typedef struct {
     double efficiency;
 } gvt_line;
 
+typedef struct gvt_line_lps gvt_line_lps;
+struct gvt_line_lps{
+    tw_node id;
+    tw_stime ts;
+    tw_stat values[4];
+    long long net_events;
+    double efficiency;
+    tw_stat kp_vals[NUM_KP][2];
+    tw_stat lp_vals[NUM_LP][4];
+    long long nsend_net_remote[NUM_LP];
+} __attribute__((__packed__));
+
 typedef struct {
     tw_peid id;
     tw_stime ts;
@@ -60,6 +74,20 @@ typedef struct {
     tw_stat ev_counters[NUM_EV_CTRS];
     size_t mem[NUM_MEM];
 } rt_line;
+
+typedef struct rt_line_lps rt_line_lps;
+struct rt_line_lps {
+    tw_peid id;
+    tw_stime ts;
+    tw_stime gvt;
+    tw_stime time_ahead_gvt[NUM_KP];
+    tw_clock cycles[NUM_CYCLE_CTRS];
+    tw_stat ev_counters[5];
+    tw_stat kp_counters[NUM_KP][2];
+    tw_stat lp_counters[NUM_LP][4];
+    long long nsend_net_remote[NUM_LP];
+    size_t mem[NUM_MEM];
+} __attribute__((__packed__));
 
 typedef struct event_line event_line;
 struct event_line{
@@ -78,17 +106,18 @@ typedef enum {
 
 static error_t parse_opt (int key, char *arg, struct argp_state *state);
 void gvt_read(FILE *file, FILE *output);
+void gvt_read_lps(FILE *file, FILE *output);
 void rt_read(FILE *file, FILE *output);
+void rt_read_lps(FILE *file, FILE *output);
 void event_read(FILE *file, FILE *output);
 void print_gvt_struct(FILE *output, gvt_line *line);
+void print_gvt_lps_struct(FILE *output, gvt_line_lps *line);
 void print_rt_struct(FILE *output, rt_line *line);
+void print_rt_lps_struct(FILE *output, rt_line_lps *line);
 void print_event_struct(FILE *output, event_line *line);
 
 static struct argp argp = { options, parse_opt, args_doc, doc };
-/*
- * argv[1]: filename to read from
- * argv[2]: which type of file are you reading
- */
+
 int main(int argc, char **argv)
 {
     FILE *file, *output;
@@ -107,10 +136,14 @@ int main(int argc, char **argv)
     sprintf(filename, "%s.csv", args.filename);
     output = fopen(filename, "w");
 
-    if (args.filetype == GVT)
+    if (args.filetype == GVT && !args.granularity)
         gvt_read(file, output);
-    if (args.filetype == RT)
+    if (args.filetype == GVT && args.granularity)
+        gvt_read_lps(file, output);
+    if (args.filetype == RT && !args.granularity)
         rt_read(file, output);
+    if (args.filetype == RT && args.granularity)
+        rt_read_lps(file, output);
     if (args.filetype == EVENT)
         event_read(file, output);
 
@@ -135,6 +168,9 @@ parse_opt (int key, char *arg, struct argp_state *state)
         case 'f':
             args->filename = arg;
             break;
+        case 'g':
+            args->granularity = atoi(arg);
+            break;
         default:
             return ARGP_ERR_UNKNOWN;
     }
@@ -154,6 +190,29 @@ void gvt_read(FILE *file, FILE *output)
     }
 }
 
+void gvt_read_lps(FILE *file, FILE *output)
+{
+    int i;
+    gvt_line_lps myline;
+    fprintf(output, "PE_ID,GVT,all_reduce_count,events_aborted,event_ties,fossil_collects,net_events,efficiency,");
+    for (i = 0; i < NUM_KP; i++)
+        fprintf(output, "KP-%d_total_rollbacks,KP-%d_secondary_rollbacks,", i, i);
+    for (i = 0; i < NUM_LP; i++)
+        fprintf(output, "LP-%d_events_processed,LP-%d_events_rolled_back,LP-%d_remote_sends,LP-%d_remote_recvs,", i, i, i, i);
+    for (i = 0; i < NUM_LP; i++)
+    {
+        if (i == NUM_LP - 1)
+            fprintf(output, "LP-%d_remote_events\n", i);
+        else
+            fprintf(output, "LP-%d_remote_events,", i);
+    }
+    while (!feof(file))
+    {
+        fread(&myline, sizeof(gvt_line_lps), 1, file);
+        print_gvt_lps_struct(output, &myline);
+    }
+}
+
 void rt_read(FILE *file, FILE *output)
 {
     int i;
@@ -170,6 +229,31 @@ void rt_read(FILE *file, FILE *output)
     {
         print_rt_struct(output, &myline);
         fread(&myline, sizeof(rt_line), 1, file);
+    }
+
+}
+
+void rt_read_lps(FILE *file, FILE *output)
+{
+    int i;
+    rt_line_lps myline;
+    fprintf(output, "PE_ID,real_TS,current_GVT,");
+    for (i = 0; i < NUM_KP; i++)
+        fprintf(output, "KP-%d_time_ahead_GVT,", i);
+    fprintf(output, "network_read_CC,gvt_CC,fossil_collect_CC,event_abort_CC,event_process_CC,pq_CC,rollback_CC,cancelq_CC,"
+            "avl_CC,buddy_CC,lz4_CC,aborted_events,pq_size,event_ties,fossil_collect_attmepts,num_GVT_comps,");
+    for (i = 0; i < NUM_KP; i++)
+        fprintf(output, "KP-%d_total_rollbacks,KP-%d_secondary_rollbacks,", i, i);
+    for (i = 0; i < NUM_LP; i++)
+        fprintf(output, "LP-%d_events_processed,LP-%d_events_rolled_back,LP-%d_remote_sends,LP-%d_remote_recvs,", i, i, i, i);
+    for (i = 0; i < NUM_LP; i++)
+        fprintf(output, "LP-%d_remote_events,", i);
+    fprintf(output, "mem_allocated,mem_wasted\n");
+    fread(&myline, sizeof(rt_line_lps), 1, file);
+    while (!feof(file))
+    {
+        print_rt_lps_struct(output, &myline);
+        fread(&myline, sizeof(rt_line_lps), 1, file);
     }
 
 }
@@ -194,6 +278,32 @@ void print_gvt_struct(FILE *output, gvt_line *line)
     fprintf(output, "%lld,%lld,%f\n", line->nsend_net_remote, line->net_events, line->efficiency);
 }
 
+void print_gvt_lps_struct(FILE *output, gvt_line_lps *line)
+{
+    int i,j;
+    fprintf(output, "%ld,%f,", line->id, line->ts);
+    for (i = 0; i < 4; i++)
+        fprintf(output, "%llu,", line->values[i]);
+    fprintf(output, "%lld,%f,", line->net_events, line->efficiency);
+    for (i = 0; i < NUM_KP; i++)
+    {
+        for (j = 0; j < 2; j++)
+            fprintf(output, "%llu,", line->kp_vals[i][j]);
+    }
+    for (i = 0; i < NUM_LP; i++)
+    {
+        for (j = 0; j < 4; j++)
+            fprintf(output, "%llu,", line->lp_vals[i][j]);
+    }
+    for (i = 0; i < NUM_LP; i++)
+    {
+        if (i == NUM_LP - 1)
+            fprintf(output, "%lld\n", line->nsend_net_remote[i]);
+        else
+            fprintf(output, "%lld,", line->nsend_net_remote[i]);
+    }
+}
+
 void print_rt_struct(FILE *output, rt_line *line)
 {
     int i;
@@ -208,6 +318,51 @@ void print_rt_struct(FILE *output, rt_line *line)
 #endif
     for (i = 0; i < NUM_EV_CTRS; i++)
         fprintf(output, "%llu,", line->ev_counters[i]);
+    for (i = 0; i < NUM_MEM; i++)
+    {
+        fprintf(output, "%ld", line->mem[i]);
+        if (i != NUM_MEM-1)
+            fprintf(output, ",");
+        else
+            fprintf(output, "\n");
+    }
+}
+
+void print_rt_lps_struct(FILE *output, rt_line_lps *line)
+{
+    int i,j;
+//    fprintf(output, "\n");
+    fprintf(output, "%lu,%f,%f,", line->id, line->ts, line->gvt);
+//    fprintf(output, "\n");
+    for (i = 0; i < NUM_KP; i++)
+        fprintf(output, "%f,", line->time_ahead_gvt[i]);
+//    fprintf(output, "\n");
+    for (i = 0; i < NUM_CYCLE_CTRS; i++)
+#ifdef BGQ
+        fprintf(output, "%llu,", line->cycles[i]);
+#else
+        fprintf(output, "%"PRIu64",", line->cycles[i]);
+#endif
+//    fprintf(output, "\n");
+    for (i = 0; i < 5; i++)
+        fprintf(output, "%llu,", line->ev_counters[i]);
+//    fprintf(output, "\n");
+    for (i = 0; i < NUM_KP; i++)
+    {
+        for (j = 0; j < 2; j++)
+            fprintf(output, "%llu,", line->kp_counters[i][j]);
+    }
+//    fprintf(output, "\n");
+    for (i = 0; i < NUM_LP; i++)
+    {
+        for (j = 0; j < 4; j++)
+            fprintf(output, "%llu,", line->lp_counters[i][j]);
+//        fprintf(output, "\n");
+    }
+//    fprintf(output, "\n");
+    for (i = 0; i < NUM_LP; i++)
+        fprintf(output, "%lld,", line->nsend_net_remote[i]);
+//    fprintf(output, "\n");
     for (i = 0; i < NUM_MEM; i++)
     {
         fprintf(output, "%ld", line->mem[i]);
