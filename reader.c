@@ -44,49 +44,51 @@ typedef unsigned long long tw_clock; // BGQ
 typedef uint64_t tw_clock; // x86
 #endif
 
-typedef struct {
-    tw_node id;
-    tw_stime ts;
-    tw_stat values[NUM_GVT_VALS];
-    long long nsend_net_remote;
-    long long net_events;
-    double efficiency;
-} gvt_line;
+typedef struct gvt_line gvt_line;
+struct gvt_line{
+    unsigned short id;
+    float ts;
+    unsigned int values[NUM_GVT_VALS];
+    int nsend_net_remote;
+    int net_events;
+    float efficiency;
+} __attribute__((__packed__));
 
 typedef struct gvt_line_lps gvt_line_lps;
 struct gvt_line_lps{
-    tw_node id;
-    tw_stime ts;
-    tw_stat values[4];
-    long long net_events;
-    double efficiency;
-    tw_stat kp_vals[NUM_KP][2];
-    tw_stat lp_vals[NUM_LP][4];
-    long long nsend_net_remote[NUM_LP];
+    unsigned short id;
+    float ts;
+    unsigned int values[4];
+    int net_events;
+    float efficiency;
+    unsigned int kp_vals[NUM_KP][2];
+    unsigned int lp_vals[NUM_LP][4];
+    int nsend_net_remote[NUM_LP];
 } __attribute__((__packed__));
 
-typedef struct {
-    tw_peid id;
-    tw_stime ts;
-    tw_stime gvt;
-    tw_stime time_ahead_gvt[NUM_KP];
+typedef struct rt_line rt_line;
+struct rt_line{
+    unsigned short id;
+    float ts;
+    float gvt;
+    float time_ahead_gvt[NUM_KP];
     tw_clock cycles[NUM_CYCLE_CTRS];
-    tw_stat ev_counters[NUM_EV_CTRS];
-    size_t mem[NUM_MEM];
-} rt_line;
+    unsigned int ev_counters[NUM_EV_CTRS];
+    //size_t mem[NUM_MEM];
+} __attribute__((__packed__));
 
 typedef struct rt_line_lps rt_line_lps;
 struct rt_line_lps {
-    tw_peid id;
-    tw_stime ts;
-    tw_stime gvt;
-    tw_stime time_ahead_gvt[NUM_KP];
+    unsigned short id;
+    float ts;
+    float gvt;
+    float time_ahead_gvt[NUM_KP];
     tw_clock cycles[NUM_CYCLE_CTRS];
-    tw_stat ev_counters[5];
-    tw_stat kp_counters[NUM_KP][2];
-    tw_stat lp_counters[NUM_LP][4];
-    long long nsend_net_remote[NUM_LP];
-    size_t mem[NUM_MEM];
+    unsigned int ev_counters[5];
+    unsigned int kp_counters[NUM_KP][2];
+    unsigned int lp_counters[NUM_LP][4];
+    int nsend_net_remote[NUM_LP];
+    //size_t mem[NUM_MEM];
 } __attribute__((__packed__));
 
 typedef struct event_line event_line;
@@ -223,7 +225,7 @@ void rt_read(FILE *file, FILE *output)
     fprintf(output, "network_read_CC,gvt_CC,fossil_collect_CC,event_abort_CC,event_process_CC,pq_CC,rollback_CC,cancelq_CC,"
             "avl_CC,buddy_CC,lz4_CC,aborted_events,pq_size,network_remote_sends,local_remote_sends,network_sends,network_recvs,"
             "remote_rb,event_ties,fossil_collect_attempts,num_GVTs,events_processed,events_rolled_back,total_rollbacks,secondary_rollbacks,net_events,"
-            "primary_rb,mem_allocated,mem_wasted\n");
+            "primary_rb\n");
     fread(&myline, sizeof(rt_line), 1, file);
     while (!feof(file))
     {
@@ -247,8 +249,12 @@ void rt_read_lps(FILE *file, FILE *output)
     for (i = 0; i < NUM_LP; i++)
         fprintf(output, "LP-%d_events_processed,LP-%d_events_rolled_back,LP-%d_remote_sends,LP-%d_remote_recvs,", i, i, i, i);
     for (i = 0; i < NUM_LP; i++)
-        fprintf(output, "LP-%d_remote_events,", i);
-    fprintf(output, "mem_allocated,mem_wasted\n");
+    {
+        if (i == NUM_LP - 1)
+            fprintf(output, "LP-%d_remote_events\n", i);
+        else
+            fprintf(output, "LP-%d_remote_events,", i);
+    }
     fread(&myline, sizeof(rt_line_lps), 1, file);
     while (!feof(file))
     {
@@ -272,105 +278,121 @@ void event_read(FILE *file, FILE *output)
 void print_gvt_struct(FILE *output, gvt_line *line)
 {
     int i;
-    fprintf(output, "%ld,%f,", line->id, line->ts);
+    fprintf(output, "%u,%f,", line->id, line->ts);
     for (i = 0; i < NUM_GVT_VALS; i++)
-        fprintf(output, "%llu,", line->values[i]);
-    fprintf(output, "%lld,%lld,%f\n", line->nsend_net_remote, line->net_events, line->efficiency);
+        fprintf(output, "%u,", line->values[i]);
+    fprintf(output, "%d,%d,%f\n", line->nsend_net_remote, line->net_events, line->efficiency);
 }
 
 void print_gvt_lps_struct(FILE *output, gvt_line_lps *line)
 {
     int i,j;
-    fprintf(output, "%ld,%f,", line->id, line->ts);
+    fprintf(output, "%u,%f,", line->id, line->ts);
     for (i = 0; i < 4; i++)
-        fprintf(output, "%llu,", line->values[i]);
-    fprintf(output, "%lld,%f,", line->net_events, line->efficiency);
+        fprintf(output, "%u,", line->values[i]);
+    fprintf(output, "%d,%f,", line->net_events, line->efficiency);
     for (i = 0; i < NUM_KP; i++)
     {
         for (j = 0; j < 2; j++)
-            fprintf(output, "%llu,", line->kp_vals[i][j]);
+            fprintf(output, "%u,", line->kp_vals[i][j]);
     }
     for (i = 0; i < NUM_LP; i++)
     {
         for (j = 0; j < 4; j++)
-            fprintf(output, "%llu,", line->lp_vals[i][j]);
+            fprintf(output, "%u,", line->lp_vals[i][j]);
     }
     for (i = 0; i < NUM_LP; i++)
     {
         if (i == NUM_LP - 1)
-            fprintf(output, "%lld\n", line->nsend_net_remote[i]);
+            fprintf(output, "%d\n", line->nsend_net_remote[i]);
         else
-            fprintf(output, "%lld,", line->nsend_net_remote[i]);
+            fprintf(output, "%d,", line->nsend_net_remote[i]);
     }
 }
 
 void print_rt_struct(FILE *output, rt_line *line)
 {
     int i;
-    fprintf(output, "%lu,%f,%f,", line->id, line->ts, line->gvt);
+    fprintf(output, "%u,%f,%f,", line->id, line->ts, line->gvt);
     for (i = 0; i < NUM_KP; i++)
         fprintf(output, "%f,", line->time_ahead_gvt[i]);
     for (i = 0; i < NUM_CYCLE_CTRS; i++)
 #ifdef BGQ
-        fprintf(output, "%llu,", line->cycles[i]);
+        fprintf(output, "%u,", line->cycles[i]);
 #else
         fprintf(output, "%"PRIu64",", line->cycles[i]);
 #endif
     for (i = 0; i < NUM_EV_CTRS; i++)
-        fprintf(output, "%llu,", line->ev_counters[i]);
-    for (i = 0; i < NUM_MEM; i++)
     {
-        fprintf(output, "%ld", line->mem[i]);
-        if (i != NUM_MEM-1)
+        fprintf(output, "%u", line->ev_counters[i]);
+        if (i != NUM_EV_CTRS-1)
             fprintf(output, ",");
         else
             fprintf(output, "\n");
     }
+    /*
+     *for (i = 0; i < NUM_MEM; i++)
+     *{
+     *    fprintf(output, "%d", line->mem[i]);
+     *    if (i != NUM_MEM-1)
+     *        fprintf(output, ",");
+     *    else
+     *        fprintf(output, "\n");
+     *}
+     */
 }
 
 void print_rt_lps_struct(FILE *output, rt_line_lps *line)
 {
     int i,j;
 //    fprintf(output, "\n");
-    fprintf(output, "%lu,%f,%f,", line->id, line->ts, line->gvt);
+    fprintf(output, "%u,%f,%f,", line->id, line->ts, line->gvt);
 //    fprintf(output, "\n");
     for (i = 0; i < NUM_KP; i++)
         fprintf(output, "%f,", line->time_ahead_gvt[i]);
 //    fprintf(output, "\n");
     for (i = 0; i < NUM_CYCLE_CTRS; i++)
 #ifdef BGQ
-        fprintf(output, "%llu,", line->cycles[i]);
+        fprintf(output, "%u,", line->cycles[i]);
 #else
         fprintf(output, "%"PRIu64",", line->cycles[i]);
 #endif
 //    fprintf(output, "\n");
     for (i = 0; i < 5; i++)
-        fprintf(output, "%llu,", line->ev_counters[i]);
+        fprintf(output, "%u,", line->ev_counters[i]);
 //    fprintf(output, "\n");
     for (i = 0; i < NUM_KP; i++)
     {
         for (j = 0; j < 2; j++)
-            fprintf(output, "%llu,", line->kp_counters[i][j]);
+            fprintf(output, "%u,", line->kp_counters[i][j]);
     }
 //    fprintf(output, "\n");
     for (i = 0; i < NUM_LP; i++)
     {
         for (j = 0; j < 4; j++)
-            fprintf(output, "%llu,", line->lp_counters[i][j]);
+            fprintf(output, "%u,", line->lp_counters[i][j]);
 //        fprintf(output, "\n");
     }
 //    fprintf(output, "\n");
     for (i = 0; i < NUM_LP; i++)
-        fprintf(output, "%lld,", line->nsend_net_remote[i]);
-//    fprintf(output, "\n");
-    for (i = 0; i < NUM_MEM; i++)
     {
-        fprintf(output, "%ld", line->mem[i]);
-        if (i != NUM_MEM-1)
+        fprintf(output, "%d", line->nsend_net_remote[i]);
+        if (i != NUM_LP-1)
             fprintf(output, ",");
         else
             fprintf(output, "\n");
     }
+//    fprintf(output, "\n");
+    /*
+     *for (i = 0; i < NUM_MEM; i++)
+     *{
+     *    fprintf(output, "%d", line->mem[i]);
+     *    if (i != NUM_MEM-1)
+     *        fprintf(output, ",");
+     *    else
+     *        fprintf(output, "\n");
+     *}
+     */
 }
 
 void print_event_struct(FILE *output, event_line *line)
