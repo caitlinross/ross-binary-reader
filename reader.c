@@ -14,8 +14,10 @@
 #define NUM_EV_CTRS 16
 #define NUM_MEM 2
 #define NUM_KP 16
-#define NUM_LP 8
 //#define NUM_LP 176
+
+int NUM_PE = 0;
+int *lps_per_pe;
 
 static char doc[] = "Reader for the binary data collection files from ROSS";
 static char args_doc[] = "";
@@ -23,6 +25,7 @@ static struct argp_option options[] = {
     {"filename",  'f',  "str",  0,  "path of file to read" },
     {"filetype", 't',  "n",  0,  "type of file to read; 0: GVT data, 1: real time data, 2: event data" },
     {"granularity", 'g', "n", 0, "granularity of data collected; 0: PE, 1: KP/LP"},
+    {"num-pe", 'p', "n", 0, "number of PEs"},
     { 0 }
 };
 
@@ -31,6 +34,7 @@ struct arguments
     char *filename;
     int filetype;
     int granularity;
+    int num_pes;
 };
 
 typedef double tw_stime;
@@ -62,8 +66,8 @@ struct gvt_line_lps{
     int net_events;
     float efficiency;
     unsigned int kp_vals[NUM_KP][2];
-    unsigned int lp_vals[NUM_LP][4];
-    int nsend_net_remote[NUM_LP];
+    unsigned int **lp_vals;
+    int *nsend_net_remote;
 } __attribute__((__packed__));
 
 typedef struct rt_line rt_line;
@@ -86,8 +90,8 @@ struct rt_line_lps {
     tw_clock cycles[NUM_CYCLE_CTRS];
     unsigned int ev_counters[5];
     unsigned int kp_counters[NUM_KP][2];
-    unsigned int lp_counters[NUM_LP][4];
-    int nsend_net_remote[NUM_LP];
+    unsigned int **lp_counters;
+    int *nsend_net_remote;
     //size_t mem[NUM_MEM];
 } __attribute__((__packed__));
 
@@ -113,18 +117,21 @@ void rt_read(FILE *file, FILE *output);
 void rt_read_lps(FILE *file, FILE *output);
 void event_read(FILE *file, FILE *output);
 void print_gvt_struct(FILE *output, gvt_line *line);
-void print_gvt_lps_struct(FILE *output, gvt_line_lps *line);
+void print_gvt_lps_struct(FILE *output, gvt_line_lps *line, int num_lps, int max_lps);
 void print_rt_struct(FILE *output, rt_line *line);
-void print_rt_lps_struct(FILE *output, rt_line_lps *line);
+void print_rt_lps_struct(FILE *output, rt_line_lps *line, int num_lps, int max_lps);
 void print_event_struct(FILE *output, event_line *line);
+char *get_prefix(char *filename);
+void read_lps_per_pe(FILE *file, int *lps_per_pe);
 
 static struct argp argp = { options, parse_opt, args_doc, doc };
 
 int main(int argc, char **argv)
 {
-    FILE *file, *output;
-    char filename[2048];
-    struct arguments args;
+    FILE *file, *output, *rfile;
+    char filename[512];
+    struct arguments args = {0};
+    char readme_file[512];
 
     /* Default values. */
     args.filename = "-";
@@ -135,7 +142,18 @@ int main(int argc, char **argv)
     argp_parse (&argp, argc, argv, 0, 0, &args);
 
     file = fopen(args.filename, "r");
-    sprintf(filename, "%s.csv", args.filename);
+    char *prefix = get_prefix(args.filename);
+    sprintf(readme_file, "%sREADME.txt", prefix);
+    rfile = fopen(readme_file, "r");
+    lps_per_pe = calloc(NUM_PE, sizeof(int));
+    read_lps_per_pe(rfile, lps_per_pe);
+
+    if (args.filetype == GVT)
+        sprintf(filename, "%sgvt.csv", prefix);
+    if (args.filetype == RT)
+        sprintf(filename, "%srt.csv", prefix);
+    if (args.filetype == EVENT)
+        sprintf(filename, "%sevrb.csv", prefix);
     output = fopen(filename, "w");
 
     if (args.filetype == GVT && !args.granularity)
@@ -173,12 +191,72 @@ parse_opt (int key, char *arg, struct argp_state *state)
         case 'g':
             args->granularity = atoi(arg);
             break;
+        case 'p':
+            NUM_PE = atoi(arg);
+            break;
         default:
             return ARGP_ERR_UNKNOWN;
     }
     return 0;
 }
 
+char *get_prefix(char *filename)
+{
+    char *str, *token;
+    char *saveptr;
+    char delim[1] = {'-'};
+    int i, idx = 0, end = 0;
+    char *readme_file;
+    readme_file = calloc(512, sizeof(char));
+
+    for (i = 0, str=filename; ; i++, str=NULL)
+    {
+        token = strtok_r(str, delim, &saveptr);
+        if (token == NULL)
+            break;
+        if (strcmp(saveptr, "gvt.bin") == 0 || strcmp(saveptr, "rt.bin") == 0 || strcmp(saveptr, "evrb.bin") == 0)
+            end = 1;
+
+        strcpy(&readme_file[idx], token);
+        idx += saveptr-token;
+        strcpy(&readme_file[idx-1], delim);
+        if (end)
+        {
+            //strncpy(&readme_file[idx], "README.txt", 11);
+            break;
+        }
+
+    }
+    return readme_file;
+}
+
+void read_lps_per_pe(FILE *file, int *lps_per_pe)
+{
+    char *line = NULL;
+    size_t n = 0;
+    size_t read;
+    int flag = 0;
+    char *str, *token, *saveptr;
+    char delim[1] = {','};
+    int i;
+
+    while ((read = getline(&line, &n, file)) != -1)
+    {
+        if (flag)
+        {
+            for (i = 0, str=line; ; i++, str=NULL)
+            {
+                token = strtok_r(str, delim, &saveptr);
+                if (token == NULL)
+                    break;
+                lps_per_pe[i] = atoi(token);
+            }
+
+        }
+        if (strcmp(line, "LPs per PE\n") == 0)
+            flag = 1;
+    }
+}
 
 void gvt_read(FILE *file, FILE *output)
 {
@@ -194,24 +272,68 @@ void gvt_read(FILE *file, FILE *output)
 
 void gvt_read_lps(FILE *file, FILE *output)
 {
-    int i;
-    gvt_line_lps myline;
+    int i,j;
+    int max_lps = lps_per_pe[0];
+    int min_lps = lps_per_pe[NUM_PE-1];
+    unsigned short id;
     fprintf(output, "PE_ID,GVT,all_reduce_count,events_aborted,event_ties,fossil_collects,net_events,efficiency,");
     for (i = 0; i < NUM_KP; i++)
         fprintf(output, "KP-%d_total_rollbacks,KP-%d_secondary_rollbacks,", i, i);
-    for (i = 0; i < NUM_LP; i++)
+    for (i = 0; i < max_lps; i++)
         fprintf(output, "LP-%d_events_processed,LP-%d_events_rolled_back,LP-%d_remote_sends,LP-%d_remote_recvs,", i, i, i, i);
-    for (i = 0; i < NUM_LP; i++)
+    for (i = 0; i < max_lps; i++)
     {
-        if (i == NUM_LP - 1)
+        if (i == max_lps - 1)
             fprintf(output, "LP-%d_remote_events\n", i);
         else
             fprintf(output, "LP-%d_remote_events,", i);
     }
+
+    gvt_line_lps myline_max, myline_min;
+    myline_max.lp_vals = calloc(max_lps, sizeof(unsigned int*));
+    myline_max.nsend_net_remote = calloc(max_lps, sizeof(int));
+    myline_min.lp_vals = calloc(min_lps, sizeof(unsigned int*));
+    myline_min.nsend_net_remote = calloc(min_lps, sizeof(int));
+    for (i = 0; i < max_lps; i++)
+        myline_max.lp_vals[i] = calloc(4, sizeof(unsigned int));
+    for (i = 0; i < min_lps; i++)
+        myline_min.lp_vals[i] = calloc(4, sizeof(unsigned int));
+
     while (!feof(file))
     {
-        fread(&myline, sizeof(gvt_line_lps), 1, file);
-        print_gvt_lps_struct(output, &myline);
+        fread(&id, sizeof(unsigned short), 1, file);
+        if (lps_per_pe[id] == max_lps)
+        {
+            myline_max.id = id;
+            fread(&myline_max.ts, sizeof(myline_max.ts), 1, file);
+            fread(&myline_max.values[0], sizeof(unsigned int), 4, file);
+            fread(&myline_max.net_events, sizeof(myline_max.net_events), 1, file);
+            fread(&myline_max.efficiency, sizeof(myline_max.efficiency), 1, file);
+            fread(&myline_max.kp_vals[0][0], sizeof(unsigned int), NUM_KP * 2, file);
+            for (i = 0; i < max_lps; i++)
+            {
+                for (j = 0; j < 4; j++)
+                    fread(&myline_max.lp_vals[i][j], sizeof(unsigned int), 1, file);
+            }
+            fread(&myline_max.nsend_net_remote[0], sizeof(unsigned int), max_lps, file);
+            print_gvt_lps_struct(output, &myline_max, max_lps, max_lps);
+        }
+        else
+        {
+            myline_min.id = id;
+            fread(&myline_min.ts, sizeof(myline_min.ts), 1, file);
+            fread(&myline_min.values[0], sizeof(unsigned int), 4, file);
+            fread(&myline_min.net_events, sizeof(myline_min.net_events), 1, file);
+            fread(&myline_min.efficiency, sizeof(myline_min.efficiency), 1, file);
+            fread(&myline_min.kp_vals[0][0], sizeof(unsigned int), NUM_KP * 2, file);
+            for (i = 0; i < min_lps; i++)
+            {
+                for (j = 0; j < 4; j++)
+                    fread(&myline_min.lp_vals[i][j], sizeof(unsigned int), 1, file);
+            }
+            fread(&myline_min.nsend_net_remote[0], sizeof(unsigned int), min_lps, file);
+            print_gvt_lps_struct(output, &myline_min, min_lps, max_lps);
+        }
     }
 }
 
@@ -237,8 +359,10 @@ void rt_read(FILE *file, FILE *output)
 
 void rt_read_lps(FILE *file, FILE *output)
 {
-    int i;
-    rt_line_lps myline;
+    int i,j;
+    int max_lps = lps_per_pe[0];
+    int min_lps = lps_per_pe[NUM_PE-1];
+    unsigned short id;
     fprintf(output, "PE_ID,real_TS,current_GVT,");
     for (i = 0; i < NUM_KP; i++)
         fprintf(output, "KP-%d_time_ahead_GVT,", i);
@@ -246,20 +370,65 @@ void rt_read_lps(FILE *file, FILE *output)
             "avl_CC,buddy_CC,lz4_CC,aborted_events,pq_size,event_ties,fossil_collect_attmepts,num_GVT_comps,");
     for (i = 0; i < NUM_KP; i++)
         fprintf(output, "KP-%d_total_rollbacks,KP-%d_secondary_rollbacks,", i, i);
-    for (i = 0; i < NUM_LP; i++)
+    for (i = 0; i < max_lps; i++)
         fprintf(output, "LP-%d_events_processed,LP-%d_events_rolled_back,LP-%d_remote_sends,LP-%d_remote_recvs,", i, i, i, i);
-    for (i = 0; i < NUM_LP; i++)
+    for (i = 0; i < max_lps; i++)
     {
-        if (i == NUM_LP - 1)
+        if (i == max_lps - 1)
             fprintf(output, "LP-%d_remote_events\n", i);
         else
             fprintf(output, "LP-%d_remote_events,", i);
     }
-    fread(&myline, sizeof(rt_line_lps), 1, file);
+    rt_line_lps myline_max, myline_min;
+    myline_max.lp_counters = calloc(max_lps, sizeof(unsigned int*));
+    myline_max.nsend_net_remote = calloc(max_lps, sizeof(int));
+    myline_min.lp_counters = calloc(min_lps, sizeof(unsigned int*));
+    myline_min.nsend_net_remote = calloc(min_lps, sizeof(int));
+    for (i = 0; i < max_lps; i++)
+        myline_max.lp_counters[i] = calloc(4, sizeof(unsigned int));
+    for (i = 0; i < min_lps; i++)
+        myline_min.lp_counters[i] = calloc(4, sizeof(unsigned int));
+
+    //fread(&myline, sizeof(rt_line_lps), 1, file);
     while (!feof(file))
     {
-        print_rt_lps_struct(output, &myline);
-        fread(&myline, sizeof(rt_line_lps), 1, file);
+        //print_rt_lps_struct(output, &myline);
+        //fread(&myline, sizeof(rt_line_lps), 1, file);
+        fread(&id, sizeof(unsigned short), 1, file);
+        if (lps_per_pe[id] == max_lps)
+        {
+            myline_max.id = id;
+            fread(&myline_max.ts, sizeof(myline_max.ts), 1, file);
+            fread(&myline_max.gvt, sizeof(myline_max.gvt), 1, file);
+            fread(&myline_max.time_ahead_gvt[0], sizeof(float), NUM_KP, file);
+            fread(&myline_max.cycles[0], sizeof(tw_clock), NUM_CYCLE_CTRS, file);
+            fread(&myline_max.ev_counters[0], sizeof(unsigned int), 5, file);
+            fread(&myline_max.kp_counters[0][0], sizeof(unsigned int), NUM_KP * 2, file);
+            for (i = 0; i < max_lps; i++)
+            {
+                for (j = 0; j < 4; j++)
+                    fread(&myline_max.lp_counters[i][j], sizeof(unsigned int), 1, file);
+            }
+            fread(&myline_max.nsend_net_remote[0], sizeof(unsigned int), max_lps, file);
+            print_rt_lps_struct(output, &myline_max, max_lps, max_lps);
+        }
+        else
+        {
+            myline_min.id = id;
+            fread(&myline_min.ts, sizeof(myline_min.ts), 1, file);
+            fread(&myline_min.gvt, sizeof(myline_min.gvt), 1, file);
+            fread(&myline_min.time_ahead_gvt[0], sizeof(float), NUM_KP, file);
+            fread(&myline_min.cycles[0], sizeof(tw_clock), NUM_CYCLE_CTRS, file);
+            fread(&myline_min.ev_counters[0], sizeof(unsigned int), 5, file);
+            fread(&myline_min.kp_counters[0][0], sizeof(unsigned int), NUM_KP * 2, file);
+            for (i = 0; i < min_lps; i++)
+            {
+                for (j = 0; j < 4; j++)
+                    fread(&myline_min.lp_counters[i][j], sizeof(unsigned int), 1, file);
+            }
+            fread(&myline_min.nsend_net_remote[0], sizeof(unsigned int), min_lps, file);
+            print_rt_lps_struct(output, &myline_min, min_lps, max_lps);
+        }
     }
 
 }
@@ -284,7 +453,7 @@ void print_gvt_struct(FILE *output, gvt_line *line)
     fprintf(output, "%d,%d,%f\n", line->nsend_net_remote, line->net_events, line->efficiency);
 }
 
-void print_gvt_lps_struct(FILE *output, gvt_line_lps *line)
+void print_gvt_lps_struct(FILE *output, gvt_line_lps *line, int num_lps, int max_lps)
 {
     int i,j;
     fprintf(output, "%u,%f,", line->id, line->ts);
@@ -296,15 +465,25 @@ void print_gvt_lps_struct(FILE *output, gvt_line_lps *line)
         for (j = 0; j < 2; j++)
             fprintf(output, "%u,", line->kp_vals[i][j]);
     }
-    for (i = 0; i < NUM_LP; i++)
+    for (i = 0; i < num_lps; i++)
     {
         for (j = 0; j < 4; j++)
             fprintf(output, "%u,", line->lp_vals[i][j]);
     }
-    for (i = 0; i < NUM_LP; i++)
+    if (num_lps < max_lps)
     {
-        if (i == NUM_LP - 1)
-            fprintf(output, "%d\n", line->nsend_net_remote[i]);
+        for (j = 0; j < 4; j++)
+            fprintf(output, "NA,");
+    }
+    for (i = 0; i < max_lps; i++)
+    {
+        if (i == max_lps - 1)
+        {
+            if (num_lps < max_lps)
+                fprintf(output, "NA\n");
+            else
+                fprintf(output, "%d\n", line->nsend_net_remote[i]);
+        }
         else
             fprintf(output, "%d,", line->nsend_net_remote[i]);
     }
@@ -342,7 +521,7 @@ void print_rt_struct(FILE *output, rt_line *line)
      */
 }
 
-void print_rt_lps_struct(FILE *output, rt_line_lps *line)
+void print_rt_lps_struct(FILE *output, rt_line_lps *line, int num_lps, int max_lps)
 {
     int i,j;
 //    fprintf(output, "\n");
@@ -367,20 +546,34 @@ void print_rt_lps_struct(FILE *output, rt_line_lps *line)
             fprintf(output, "%u,", line->kp_counters[i][j]);
     }
 //    fprintf(output, "\n");
-    for (i = 0; i < NUM_LP; i++)
+    for (i = 0; i < num_lps; i++)
     {
         for (j = 0; j < 4; j++)
             fprintf(output, "%u,", line->lp_counters[i][j]);
 //        fprintf(output, "\n");
     }
-//    fprintf(output, "\n");
-    for (i = 0; i < NUM_LP; i++)
+    if (num_lps < max_lps)
     {
-        fprintf(output, "%d", line->nsend_net_remote[i]);
-        if (i != NUM_LP-1)
-            fprintf(output, ",");
+        for (j = 0; j < 4; j++)
+            fprintf(output, "NA,");
+    }
+//    fprintf(output, "\n");
+    for (i = 0; i < max_lps; i++)
+    {
+        if (i == max_lps - 1)
+        {
+            if (num_lps < max_lps)
+                fprintf(output, "NA\n");
+            else
+                fprintf(output, "%d\n", line->nsend_net_remote[i]);
+        }
         else
-            fprintf(output, "\n");
+            fprintf(output, "%d,", line->nsend_net_remote[i]);
+        //fprintf(output, "%d", line->nsend_net_remote[i]);
+        //if (i != -1)
+        //    fprintf(output, ",");
+        //else
+        //    fprintf(output, "\n");
     }
 //    fprintf(output, "\n");
     /*
