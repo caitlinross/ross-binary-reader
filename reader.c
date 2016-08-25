@@ -13,8 +13,7 @@
 #define NUM_CYCLE_CTRS 11
 #define NUM_EV_CTRS 16
 #define NUM_MEM 2
-#define NUM_KP 256
-//#define NUM_LP 176
+#define NUM_KP 16
 
 int NUM_PE = 0;
 int *lps_per_pe;
@@ -300,8 +299,8 @@ void gvt_read_lps(FILE *file, FILE *output, FILE *lp_out, FILE *kp_out)
      *}
      */
     fprintf(output, "PE_ID,GVT,all_reduce_count,events_aborted,event_ties,fossil_collects,net_events,efficiency\n");
-    fprintf(lp_out, "LP_ID,PE_ID,KP_ID,events_processed,events_rolled_back,remote_sends,remote_recvs,remote_events\n");
-    fprintf(kp_out, "KP_ID,PE_ID,total_rollbacks,secondary_rollbacks\n");
+    fprintf(lp_out, "LP_ID,PE_ID,KP_ID,GVT,events_processed,events_rolled_back,remote_sends,remote_recvs,remote_events\n");
+    fprintf(kp_out, "KP_ID,PE_ID,GVT,total_rollbacks,secondary_rollbacks\n");
 
     gvt_line_lps myline_max, myline_min;
     myline_max.lp_vals = calloc(max_lps, sizeof(unsigned int*));
@@ -397,8 +396,8 @@ void rt_read_lps(FILE *file, FILE *output, FILE *lp_out, FILE *kp_out)
      */
 
     fprintf(output, "PE_ID,real_TS,current_GVT,network_read_CC,gvt_CC,fossil_collect_CC,event_abort_CC,event_process_CC,pq_CC,rollback_CC,cancelq_CC,avl_CC,buddy_CC,lz4_CC,aborted_events,pq_size,event_ties,fossil_collect_attempts,num_GVT_comps\n");
-    fprintf(lp_out, "LP_ID,KP_ID,PE_ID,events_processed,events_rolled_back,remote_sends,remote_recvs,remote_events\n");
-    fprintf(kp_out, "KP_ID,PE_ID,total_rollbacks,secondary_rollbacks\n");
+    fprintf(lp_out, "LP_ID,KP_ID,PE_ID,real_TS,current_GVT,events_processed,events_rolled_back,remote_sends,remote_recvs,remote_events\n");
+    fprintf(kp_out, "KP_ID,PE_ID,real_TS,current_GVT,time_ahead_GVT,total_rollbacks,secondary_rollbacks\n");
 
     rt_line_lps myline_max, myline_min;
     myline_max.lp_counters = calloc(max_lps, sizeof(unsigned int*));
@@ -486,7 +485,7 @@ void print_gvt_lps_struct(FILE *output, FILE *lp_out, FILE *kp_out, gvt_line_lps
 
     for (i = 0; i < NUM_KP; i++)
     {
-        fprintf(kp_out, "%d,%u", (line->id *NUM_KP + i), line->id);
+        fprintf(kp_out, "%d,%u,%f", (line->id *NUM_KP + i), line->id, line->ts);
         for (j = 0; j < 2; j++)
             fprintf(kp_out, ",%u", line->kp_vals[i][j]);
         fprintf(kp_out, "\n");
@@ -495,7 +494,7 @@ void print_gvt_lps_struct(FILE *output, FILE *lp_out, FILE *kp_out, gvt_line_lps
     for (i = 0; i < num_lps; i++)
     {
         kp_id = i % NUM_KP;
-        fprintf(lp_out, "%d,%d,%u", (line->id * lps_per_pe[line->id] + i), (line->id *NUM_KP + kp_id), line->id);
+        fprintf(lp_out, "%d,%d,%u,%f", (line->id * lps_per_pe[line->id] + i), (line->id *NUM_KP + kp_id), line->id, line->ts);
         for (j = 0; j < 4; j++)
             fprintf(lp_out, ",%u", line->lp_vals[i][j]);
         fprintf(lp_out, ",%d\n", line->nsend_net_remote[i]);
@@ -552,7 +551,7 @@ void print_rt_lps_struct(FILE *output, FILE *lp_out, FILE *kp_out, rt_line_lps *
 
     for (i = 0; i < NUM_KP; i++)
     {
-        fprintf(kp_out, "%d,%u,%f", (line->id *NUM_KP + i), line->id, line->time_ahead_gvt[i]);
+        fprintf(kp_out, "%d,%u,%f,%f,%f", (line->id *NUM_KP + i), line->id, line->ts, line->gvt, line->time_ahead_gvt[i]);
         for (j = 0; j < 2; j++)
             fprintf(kp_out, ",%u", line->kp_counters[i][j]);
         fprintf(kp_out, "\n");
@@ -561,7 +560,7 @@ void print_rt_lps_struct(FILE *output, FILE *lp_out, FILE *kp_out, rt_line_lps *
     for (i = 0; i < num_lps; i++)
     {
         kp_id = i % NUM_KP;
-        fprintf(lp_out, "%d,%d,%u", (line->id * lps_per_pe[line->id] + i), (line->id *NUM_KP + kp_id), line->id);
+        fprintf(lp_out, "%d,%d,%u,%f,%f", (line->id * lps_per_pe[line->id] + i), (line->id *NUM_KP + kp_id), line->id, line->ts, line->gvt);
         for (j = 0; j < 4; j++)
             fprintf(lp_out, ",%u", line->lp_counters[i][j]);
         fprintf(lp_out, ",%d\n", line->nsend_net_remote[i]);
