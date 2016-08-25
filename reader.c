@@ -17,6 +17,7 @@
 
 int NUM_PE = 0;
 int *lps_per_pe;
+int *total_lp_offsets;
 
 static char doc[] = "Reader for the binary data collection files from ROSS";
 static char args_doc[] = "";
@@ -132,6 +133,7 @@ int main(int argc, char **argv)
     char tmpname[512];
     struct arguments args = {0};
     char readme_file[512];
+    int i;
 
     /* Default values. */
     args.filename = "-";
@@ -147,6 +149,11 @@ int main(int argc, char **argv)
     rfile = fopen(readme_file, "r");
     lps_per_pe = calloc(NUM_PE, sizeof(int));
     read_lps_per_pe(rfile, lps_per_pe);
+    // get offsets for determining global LP IDs
+    total_lp_offsets = calloc(NUM_PE, sizeof(int));
+    total_lp_offsets[0] = 0;
+    for (i = 1; i < NUM_PE; i++)
+        total_lp_offsets[i] = total_lp_offsets[i-1] + lps_per_pe[i-1];
 
     if (args.filetype == GVT)
         sprintf(tmpname, "%sgvt", prefix);
@@ -299,7 +306,7 @@ void gvt_read_lps(FILE *file, FILE *output, FILE *lp_out, FILE *kp_out)
      *}
      */
     fprintf(output, "PE_ID,GVT,all_reduce_count,events_aborted,event_ties,fossil_collects,net_events,efficiency\n");
-    fprintf(lp_out, "LP_ID,PE_ID,KP_ID,GVT,events_processed,events_rolled_back,remote_sends,remote_recvs,remote_events\n");
+    fprintf(lp_out, "LP_ID,KP_ID,PE_ID,GVT,events_processed,events_rolled_back,remote_sends,remote_recvs,remote_events\n");
     fprintf(kp_out, "KP_ID,PE_ID,GVT,total_rollbacks,secondary_rollbacks\n");
 
     gvt_line_lps myline_max, myline_min;
@@ -494,7 +501,7 @@ void print_gvt_lps_struct(FILE *output, FILE *lp_out, FILE *kp_out, gvt_line_lps
     for (i = 0; i < num_lps; i++)
     {
         kp_id = i % NUM_KP;
-        fprintf(lp_out, "%d,%d,%u,%f", (line->id * lps_per_pe[line->id] + i), (line->id *NUM_KP + kp_id), line->id, line->ts);
+        fprintf(lp_out, "%d,%d,%u,%f", (total_lp_offsets[line->id] + i), (line->id *NUM_KP + kp_id), line->id, line->ts);
         for (j = 0; j < 4; j++)
             fprintf(lp_out, ",%u", line->lp_vals[i][j]);
         fprintf(lp_out, ",%d\n", line->nsend_net_remote[i]);
@@ -560,7 +567,7 @@ void print_rt_lps_struct(FILE *output, FILE *lp_out, FILE *kp_out, rt_line_lps *
     for (i = 0; i < num_lps; i++)
     {
         kp_id = i % NUM_KP;
-        fprintf(lp_out, "%d,%d,%u,%f,%f", (line->id * lps_per_pe[line->id] + i), (line->id *NUM_KP + kp_id), line->id, line->ts, line->gvt);
+        fprintf(lp_out, "%d,%d,%u,%f,%f", (total_lp_offsets[line->id] + i), (line->id *NUM_KP + kp_id), line->id, line->ts, line->gvt);
         for (j = 0; j < 4; j++)
             fprintf(lp_out, ",%u", line->lp_counters[i][j]);
         fprintf(lp_out, ",%d\n", line->nsend_net_remote[i]);
