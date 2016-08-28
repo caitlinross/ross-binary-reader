@@ -13,11 +13,7 @@
 #define NUM_CYCLE_CTRS 11
 #define NUM_EV_CTRS 16
 #define NUM_MEM 2
-#define NUM_KP 16
-
-int NUM_PE = 0;
-int *lps_per_pe;
-int *total_lp_offsets;
+#define NUM_KP 256
 
 static char doc[] = "Reader for the binary data collection files from ROSS";
 static char args_doc[] = "";
@@ -26,6 +22,8 @@ static struct argp_option options[] = {
     {"filetype", 't',  "n",  0,  "type of file to read; 0: GVT data, 1: real time data, 2: event data" },
     {"granularity", 'g', "n", 0, "granularity of data collected; 0: PE, 1: KP/LP"},
     {"num-pe", 'p', "n", 0, "number of PEs"},
+    {"combine-events", 'c', 0, 0, "bin event trace to reduce data size"},
+    {"bin-size", 'b', "n", 0, "amount of virtual time in bin for binning event trace (default: 10000)"},
     { 0 }
 };
 
@@ -104,11 +102,29 @@ struct event_line{
     int event_type;
 } __attribute__((__packed__));
 
+typedef struct event_bin event_bin;
+struct event_bin{
+    tw_stime recv_ts_vt;
+    unsigned long long **event_count;
+    event_bin *next;
+} __attribute__((__packed__));
+
 typedef enum {
     GVT,
     RT,
     EVENT
 } file_types;
+
+int NUM_PE = 0;
+int *lps_per_pe;
+int *total_lp_offsets;
+int combine = 0;
+int num_bins = 0;
+int bin_size = 10000;
+int total_lps = 0;
+event_bin *bin_list;
+event_bin *cur_bin;
+event_bin *last_bin;
 
 static error_t parse_opt (int key, char *arg, struct argp_state *state);
 void gvt_read(FILE *file, FILE *output);
@@ -123,6 +139,8 @@ void print_rt_lps_struct(FILE *output, FILE *lp_out, FILE *kp_out, rt_line_lps *
 void print_event_struct(FILE *output, event_line *line);
 char *get_prefix(char *filename);
 void read_lps_per_pe(FILE *file, int *lps_per_pe);
+void bin_event(event_line *line);
+void print_binned_events(FILE *output);
 
 static struct argp argp = { options, parse_opt, args_doc, doc };
 
@@ -138,6 +156,7 @@ int main(int argc, char **argv)
     /* Default values. */
     args.filename = "-";
     args.filetype = 0;
+    args.granularity = 0;
 
     /* Parse our arguments; every option seen by parse_opt will
      *      be reflected in arguments. */
@@ -152,8 +171,24 @@ int main(int argc, char **argv)
     // get offsets for determining global LP IDs
     total_lp_offsets = calloc(NUM_PE, sizeof(int));
     total_lp_offsets[0] = 0;
+    total_lps = lps_per_pe[0];
     for (i = 1; i < NUM_PE; i++)
+    {
         total_lp_offsets[i] = total_lp_offsets[i-1] + lps_per_pe[i-1];
+        total_lps += lps_per_pe[i];
+    }
+
+    if (combine)
+    {
+        num_bins++;
+        bin_list = calloc(1, sizeof(event_bin));
+        bin_list->event_count = calloc(total_lps, sizeof(unsigned long long*));
+        for (i = 0; i < total_lps; i++)
+            bin_list->event_count[i] = calloc(total_lps, sizeof(unsigned long long));
+        bin_list->next = NULL;
+        last_bin = bin_list;
+        cur_bin = bin_list;
+    }
 
     if (args.filetype == GVT)
         sprintf(tmpname, "%sgvt", prefix);
@@ -208,6 +243,12 @@ parse_opt (int key, char *arg, struct argp_state *state)
             break;
         case 'p':
             NUM_PE = atoi(arg);
+            break;
+        case 'c':
+            combine = 1;
+            break;
+        case 'b':
+            bin_size = atoi(arg);
             break;
         default:
             return ARGP_ERR_UNKNOWN;
@@ -463,11 +504,55 @@ void rt_read_lps(FILE *file, FILE *output, FILE *lp_out, FILE *kp_out)
 void event_read(FILE *file, FILE *output)
 {
     event_line myline;
-    fprintf(output, "src_lp,dest_lp,recv_ts_vt,recv_ts_rt,event_type\n");
+    if (combine)
+        fprintf(output, "src_lp,dest_lp,recv_ts_vt,event_count\n");
+    else
+        fprintf(output, "src_lp,dest_lp,recv_ts_vt,recv_ts_rt,event_type\n");
+
     while (!feof(file))
     {
         fread(&myline, sizeof(event_line), 1, file);
-        print_event_struct(output, &myline);
+        if (combine)
+            bin_event(&myline);
+        else
+            print_event_struct(output, &myline);
+    }
+    if (combine)
+        print_binned_events(output);
+}
+
+void bin_event(event_line *line)
+{
+    event_bin *this_bin;
+    int i;
+    while (line->recv_ts_vt >= last_bin->recv_ts_vt + bin_size)
+    {
+        // need to add a new bin
+        num_bins++;
+        event_bin *new_bin = calloc(1, sizeof(event_bin));
+        new_bin->event_count = calloc(total_lps, sizeof(unsigned long long*));
+        for (i = 0; i < total_lps; i++)
+            new_bin->event_count[i] = calloc(total_lps, sizeof(unsigned long long));
+        new_bin->recv_ts_vt = last_bin->recv_ts_vt + bin_size;
+        new_bin->next = NULL;
+        last_bin->next = new_bin;
+        last_bin = new_bin;
+    }
+
+    // check if we need to reset cur_bin
+    if (line->recv_ts_vt < cur_bin->recv_ts_vt)
+        cur_bin = bin_list;
+
+    // now loop through bins from cur_bin
+    for (this_bin = cur_bin; this_bin != NULL; this_bin = this_bin->next)
+    {
+        if (line->recv_ts_vt >= this_bin->recv_ts_vt && line->recv_ts_vt < this_bin->recv_ts_vt + bin_size)
+        {
+            //found correct bin
+            cur_bin = this_bin;
+            (cur_bin->event_count[line->src_lp][line->dest_lp]) += 1;
+            break;
+        }
     }
 }
 
@@ -587,4 +672,20 @@ void print_rt_lps_struct(FILE *output, FILE *lp_out, FILE *kp_out, rt_line_lps *
 void print_event_struct(FILE *output, event_line *line)
 {
     fprintf(output, "%"PRIu64",%"PRIu64",%f,%f,%d\n", line->src_lp, line->dest_lp, line->recv_ts_vt, line->recv_ts_rt, line->event_type);
+}
+
+void print_binned_events(FILE *output)
+{
+    int i, j;
+    for (cur_bin = bin_list; cur_bin != NULL; cur_bin = cur_bin->next)
+    {
+        for (i = 0; i < total_lps; i++)
+        {
+            for (j = 0; j < total_lps; j++)
+            {
+                if (cur_bin->event_count[i][j] > 0)
+                    fprintf(output, "%d,%d,%f,%llu\n", i, j, cur_bin->recv_ts_vt, cur_bin->event_count[i][j]);
+            }
+        }
+    }
 }
