@@ -125,7 +125,7 @@ event_bin *g_cur_bin;
 event_bin *g_last_bin;
 
 static error_t parse_opt (int key, char *arg, struct argp_state *state);
-void read_metadata(char *filename, char *prefix);
+void read_metadata(char *path, char *prefix);
 void gvt_read(FILE *file, FILE *output);
 void gvt_read_lps(FILE *file, FILE *output, FILE *lp_out, FILE *kp_out);
 void rt_read(FILE *file, FILE *output, FILE *kp_out);
@@ -136,7 +136,7 @@ void print_gvt_lps_struct(FILE *output, FILE *lp_out, FILE *kp_out, gvt_line_lps
 void print_rt_struct(FILE *output, FILE *kp_out, rt_line *line);
 void print_rt_lps_struct(FILE *output, FILE *lp_out, FILE *kp_out, rt_line_lps *line, int num_lps);
 void print_event_struct(FILE *output, event_line *line);
-char *get_prefix(char *filename);
+char *get_prefix(char *filename, char *path);
 void bin_event(event_line *line);
 void print_binned_events(FILE *output);
 
@@ -150,6 +150,7 @@ int main(int argc, char **argv)
     struct arguments args = {0};
     int i;
     char *prefix;
+    char path[MAX_LEN];
 
     /* Default values. */
     args.filename = "-";
@@ -160,8 +161,8 @@ int main(int argc, char **argv)
     argp_parse (&argp, argc, argv, 0, 0, &args);
 
     file = fopen(args.filename, "r");
-    prefix = get_prefix(args.filename);
-    read_metadata(args.filename, prefix);
+    prefix = get_prefix(args.filename, path);
+    read_metadata(path, prefix);
 
     // set up for binning event trace while reading
     if (g_combine)
@@ -178,12 +179,12 @@ int main(int argc, char **argv)
 
     // open the necessary files for output
     if (args.filetype == GVT)
-        sprintf(tmpname, "%sgvt", prefix);
+        sprintf(tmpname, "%s%sgvt", path, prefix);
     else if (args.filetype == RT)
-        sprintf(tmpname, "%srt", prefix);
+        sprintf(tmpname, "%s%srt", path, prefix);
     else if (args.filetype == EVENT)
     {
-        sprintf(filename, "%sevtrace.csv", prefix);
+        sprintf(filename, "%s%sevtrace.csv", path, prefix);
         output = fopen(filename, "w");
     }
     if (args.filetype != EVENT)
@@ -253,7 +254,7 @@ parse_opt (int key, char *arg, struct argp_state *state)
     return 0;
 }
 
-void read_metadata(char *filename, char *prefix)
+void read_metadata(char *path, char *prefix)
 {
     FILE *file;
     char readme_file[MAX_LEN];
@@ -265,7 +266,7 @@ void read_metadata(char *filename, char *prefix)
     char lpdelim[] = ",";
     int i;
 
-    sprintf(readme_file, "%sREADME.txt", prefix);
+    sprintf(readme_file, "%s%sREADME.txt", path, prefix);
     file = fopen(readme_file, "r");
 
     while ((read = getline(&line, &n, file)) != -1)
@@ -367,16 +368,33 @@ void read_metadata(char *filename, char *prefix)
     fclose(file);
 }
 
-char *get_prefix(char *filename)
+char *get_prefix(char *filename, char *path)
 {
     char *str, *token;
     char *saveptr;
-    char delim[1] = {'-'};
+    char fileroot[MAX_LEN];
+    char pathdelim[2] = {'/', '\0'};
+    char delim[2] = {'-', '\0'};
     int i, idx = 0, end = 0;
     char *readme_file;
-    readme_file = calloc(512, sizeof(char));
+    readme_file = calloc(MAX_LEN, sizeof(char));
 
     for (i = 0, str=filename; ; i++, str=NULL)
+    {
+        token = strtok_r(str, pathdelim, &saveptr);
+        if (token == NULL)
+            break;
+        if (strcmp(saveptr, "") != 0)
+        {
+            strcpy(&path[idx], token);
+            idx += saveptr-token;
+            strcpy(&path[idx-1], pathdelim);
+        }
+
+        strcpy(fileroot, token);
+    }
+    idx = 0;
+    for (i = 0, str=fileroot; ; i++, str=NULL)
     {
         token = strtok_r(str, delim, &saveptr);
         if (token == NULL)
