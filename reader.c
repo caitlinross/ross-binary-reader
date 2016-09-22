@@ -131,12 +131,12 @@ static error_t parse_opt (int key, char *arg, struct argp_state *state);
 void read_metadata(char *filename, char *prefix);
 void gvt_read(FILE *file, FILE *output);
 void gvt_read_lps(FILE *file, FILE *output, FILE *lp_out, FILE *kp_out);
-void rt_read(FILE *file, FILE *output);
+void rt_read(FILE *file, FILE *output, FILE *kp_out);
 void rt_read_lps(FILE *file, FILE *output, FILE *lp_out, FILE *kp_out);
 void event_read(FILE *file, FILE *output);
 void print_gvt_struct(FILE *output, gvt_line *line);
 void print_gvt_lps_struct(FILE *output, FILE *lp_out, FILE *kp_out, gvt_line_lps *line, int num_lps);
-void print_rt_struct(FILE *output, rt_line *line);
+void print_rt_struct(FILE *output, FILE *kp_out, rt_line *line);
 void print_rt_lps_struct(FILE *output, FILE *lp_out, FILE *kp_out, rt_line_lps *line, int num_lps);
 void print_event_struct(FILE *output, event_line *line);
 char *get_prefix(char *filename);
@@ -212,7 +212,7 @@ int main(int argc, char **argv)
     if (args.filetype == GVT && g_granularity)
         gvt_read_lps(file, output, lp_out, kp_out);
     if (args.filetype == RT && !g_granularity)
-        rt_read(file, output);
+        rt_read(file, output, kp_out);
     if (args.filetype == RT && g_granularity)
         rt_read_lps(file, output, lp_out, kp_out);
     if (args.filetype == EVENT)
@@ -514,20 +514,18 @@ void gvt_read_lps(FILE *file, FILE *output, FILE *lp_out, FILE *kp_out)
     }
 }
 
-void rt_read(FILE *file, FILE *output)
+void rt_read(FILE *file, FILE *output, FILE *kp_out)
 {
-    int i;
     rt_line myline;
     myline.time_ahead_gvt = calloc(g_num_kp, sizeof(float));
     myline.cycles = calloc(g_num_cycle_ctrs, sizeof(tw_clock));
     myline.ev_counters = calloc(g_num_ev_ctrs_pe, sizeof(unsigned int));
     fprintf(output, "PE_ID,real_TS,current_GVT,");
-    for (i = 0; i < g_num_kp; i++)
-        fprintf(output, "KP-%d_time_ahead_GVT,", i);
     fprintf(output, "network_read_CC,gvt_CC,fossil_collect_CC,event_abort_CC,event_process_CC,pq_CC,rollback_CC,cancelq_CC,"
             "avl_CC,buddy_CC,lz4_CC,aborted_events,pq_size,remote_events,network_sends,network_recvs,"
             "event_ties,fossil_collect_attempts,num_GVTs,events_processed,events_rolled_back,total_rollbacks,secondary_rollbacks,net_events,"
             "primary_rb\n");
+    fprintf(kp_out, "KP_ID,PE_ID,real_TS,current_GVT,time_ahead_GVT\n");
     while (!feof(file))
     {
         fread(&myline.id, sizeof(myline.id), 1, file);
@@ -536,7 +534,7 @@ void rt_read(FILE *file, FILE *output)
         fread(&myline.time_ahead_gvt[0], sizeof(float), g_num_kp, file);
         fread(&myline.cycles[0], sizeof(tw_clock), g_num_cycle_ctrs, file);
         fread(&myline.ev_counters[0], sizeof(unsigned int), g_num_ev_ctrs_pe, file);
-        print_rt_struct(output, &myline);
+        print_rt_struct(output, kp_out, &myline);
     }
 
 }
@@ -702,26 +700,25 @@ void print_gvt_lps_struct(FILE *output, FILE *lp_out, FILE *kp_out, gvt_line_lps
     }
 }
 
-void print_rt_struct(FILE *output, rt_line *line)
+void print_rt_struct(FILE *output, FILE *kp_out, rt_line *line)
 {
     int i;
-    fprintf(output, "%u,%f,%f,", line->id, line->ts, line->gvt);
-    for (i = 0; i < g_num_kp; i++)
-        fprintf(output, "%f,", line->time_ahead_gvt[i]);
+    fprintf(output, "%u,%f,%f", line->id, line->ts, line->gvt);
+    //for (i = 0; i < g_num_kp; i++)
+    //    fprintf(output, "%f,", line->time_ahead_gvt[i]);
     for (i = 0; i < g_num_cycle_ctrs; i++)
 #ifdef BGQ
-        fprintf(output, "%u,", line->cycles[i]);
+        fprintf(output, ",%u", line->cycles[i]);
 #else
-        fprintf(output, "%"PRIu64",", line->cycles[i]);
+        fprintf(output, ",%"PRIu64, line->cycles[i]);
 #endif
     for (i = 0; i < g_num_ev_ctrs_pe; i++)
-    {
-        fprintf(output, "%u", line->ev_counters[i]);
-        if (i != g_num_ev_ctrs_pe-1)
-            fprintf(output, ",");
-        else
-            fprintf(output, "\n");
-    }
+        fprintf(output, ",%u", line->ev_counters[i]);
+    fprintf(output, "\n");
+
+    // time ahead of GVT always at KP granularity
+    for (i = 0; i < g_num_kp; i++)
+        fprintf(kp_out, "%d,%u,%f,%f,%f\n", (line->id *g_num_kp + i), line->id, line->ts, line->gvt, line->time_ahead_gvt[i]);
 }
 
 void print_rt_lps_struct(FILE *output, FILE *lp_out, FILE *kp_out, rt_line_lps *line, int num_lps)
