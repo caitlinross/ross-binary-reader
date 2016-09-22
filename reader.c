@@ -16,8 +16,6 @@ static char args_doc[] = "";
 static struct argp_option options[] = {
     {"filename",  'f',  "str",  0,  "path of file to read" },
     {"filetype", 't',  "n",  0,  "type of file to read; 0: GVT data, 1: real time data, 2: event data" },
-    //{"granularity", 'g', "n", 0, "granularity of data collected; 0: PE, 1: KP/LP"},
-    //{"num-pe", 'p', "n", 0, "number of PEs"},
     {"combine-events", 'c', 0, 0, "bin event trace to reduce data size"},
     {"bin-size", 'b', "n", 0, "amount of virtual time in bin for binning event trace (default: 10000)"},
     { 0 }
@@ -55,7 +53,6 @@ struct gvt_line_lps{
     unsigned short id;
     float ts;
     unsigned int *values;
-    //int net_events;
     float efficiency;
     unsigned int **kp_vals;
     unsigned int **lp_vals;
@@ -140,7 +137,6 @@ void print_rt_struct(FILE *output, FILE *kp_out, rt_line *line);
 void print_rt_lps_struct(FILE *output, FILE *lp_out, FILE *kp_out, rt_line_lps *line, int num_lps);
 void print_event_struct(FILE *output, event_line *line);
 char *get_prefix(char *filename);
-//void read_lps_per_pe(FILE *file, int *lps_per_pe);
 void bin_event(event_line *line);
 void print_binned_events(FILE *output);
 
@@ -392,44 +388,11 @@ char *get_prefix(char *filename)
         idx += saveptr-token;
         strcpy(&readme_file[idx-1], delim);
         if (end)
-        {
-            //strncpy(&readme_file[idx], "README.txt", 11);
             break;
-        }
 
     }
     return readme_file;
 }
-
-/*
- *void read_lps_per_pe(FILE *file, int *lps_per_pe)
- *{
- *    char *line = NULL;
- *    size_t n = 0;
- *    size_t read;
- *    int flag = 0;
- *    char *str, *token, *saveptr;
- *    char delim[1] = {','};
- *    int i;
- *
- *    while ((read = getline(&line, &n, file)) != -1)
- *    {
- *        if (flag)
- *        {
- *            for (i = 0, str=line; ; i++, str=NULL)
- *            {
- *                token = strtok_r(str, delim, &saveptr);
- *                if (token == NULL)
- *                    break;
- *                lps_per_pe[i] = atoi(token);
- *            }
- *
- *        }
- *        if (strcmp(line, "LPs per PE\n") == 0)
- *            flag = 1;
- *    }
- *}
- */
 
 void gvt_read(FILE *file, FILE *output)
 {
@@ -704,8 +667,6 @@ void print_rt_struct(FILE *output, FILE *kp_out, rt_line *line)
 {
     int i;
     fprintf(output, "%u,%f,%f", line->id, line->ts, line->gvt);
-    //for (i = 0; i < g_num_kp; i++)
-    //    fprintf(output, "%f,", line->time_ahead_gvt[i]);
     for (i = 0; i < g_num_cycle_ctrs; i++)
 #ifdef BGQ
         fprintf(output, ",%u", line->cycles[i]);
