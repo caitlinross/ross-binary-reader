@@ -44,7 +44,6 @@ struct gvt_line{
     float ts;
     unsigned int *values;
     int nsend_net_remote;
-    int net_events;
     float efficiency;
 } __attribute__((__packed__));
 
@@ -65,7 +64,7 @@ struct rt_line{
     float ts;
     float gvt;
     float *time_ahead_gvt;
-    tw_clock *cycles;
+    float *cycles;
     unsigned int *ev_counters;
 } __attribute__((__packed__));
 
@@ -75,7 +74,7 @@ struct rt_line_lps {
     float ts;
     float gvt;
     float *time_ahead_gvt;
-    tw_clock *cycles;
+    float *cycles;
     unsigned int *ev_counters;
     unsigned int **kp_counters;
     unsigned int **lp_counters;
@@ -88,6 +87,7 @@ struct event_line{
     tw_lpid dest_lp;
     tw_stime recv_ts_vt;
     tw_stime recv_ts_rt;
+    tw_stime duration;
     int event_type;
 } __attribute__((__packed__));
 
@@ -416,15 +416,14 @@ void gvt_read(FILE *file, FILE *output)
 {
     gvt_line myline;
     myline.values = calloc(g_num_gvt_vals_pe, sizeof(unsigned int));
-    fprintf(output, "PE_ID,GVT,all_reduce_count,events_processed,events_aborted,events_rolled_back,event_ties,total_rollbacks,primary_rollbacks,"
-            "secondary_rollbacks,fossil_collects,network_sends,network_recvs,remote_events,net_events,efficiency\n");
+    fprintf(output, "PE_ID,GVT,all_reduce_count,events_processed,events_aborted,events_rolled_back,event_ties,total_rollbacks,"
+            "secondary_rollbacks,fossil_collects,network_sends,network_recvs,remote_events,efficiency\n");
     while (!feof(file))
     {
         fread(&myline.id, sizeof(myline.id), 1, file);
         fread(&myline.ts, sizeof(myline.ts), 1, file);
         fread(&myline.values[0], sizeof(unsigned int), g_num_gvt_vals_pe, file);
         fread(&myline.nsend_net_remote, sizeof(myline.nsend_net_remote), 1, file);
-        fread(&myline.net_events, sizeof(myline.net_events), 1, file);
         fread(&myline.efficiency, sizeof(myline.efficiency), 1, file);
         print_gvt_struct(output, &myline);
     }
@@ -499,13 +498,12 @@ void rt_read(FILE *file, FILE *output, FILE *kp_out)
 {
     rt_line myline;
     myline.time_ahead_gvt = calloc(g_num_kp, sizeof(float));
-    myline.cycles = calloc(g_num_cycle_ctrs, sizeof(tw_clock));
+    myline.cycles = calloc(g_num_cycle_ctrs, sizeof(float));
     myline.ev_counters = calloc(g_num_ev_ctrs_pe, sizeof(unsigned int));
     fprintf(output, "PE_ID,real_TS,current_GVT,");
     fprintf(output, "network_read_CC,gvt_CC,fossil_collect_CC,event_abort_CC,event_process_CC,pq_CC,rollback_CC,cancelq_CC,"
             "avl_CC,buddy_CC,lz4_CC,aborted_events,pq_size,remote_events,network_sends,network_recvs,"
-            "event_ties,fossil_collect_attempts,num_GVTs,events_processed,events_rolled_back,total_rollbacks,secondary_rollbacks,net_events,"
-            "primary_rb\n");
+            "event_ties,fossil_collect_attempts,num_GVTs,events_processed,events_rolled_back,total_rollbacks,secondary_rollbacks\n");
     fprintf(kp_out, "KP_ID,PE_ID,real_TS,current_GVT,time_ahead_GVT\n");
     while (!feof(file))
     {
@@ -513,7 +511,7 @@ void rt_read(FILE *file, FILE *output, FILE *kp_out)
         fread(&myline.ts, sizeof(myline.ts), 1, file);
         fread(&myline.gvt, sizeof(myline.gvt), 1, file);
         fread(&myline.time_ahead_gvt[0], sizeof(float), g_num_kp, file);
-        fread(&myline.cycles[0], sizeof(tw_clock), g_num_cycle_ctrs, file);
+        fread(&myline.cycles[0], sizeof(float), g_num_cycle_ctrs, file);
         fread(&myline.ev_counters[0], sizeof(unsigned int), g_num_ev_ctrs_pe, file);
         print_rt_struct(output, kp_out, &myline);
     }
@@ -533,7 +531,7 @@ void rt_read_lps(FILE *file, FILE *output, FILE *lp_out, FILE *kp_out)
 
     rt_line_lps myline_max, myline_min;
     myline_max.time_ahead_gvt = calloc(g_num_kp, sizeof(float));
-    myline_max.cycles = calloc(g_num_cycle_ctrs, sizeof(tw_clock));
+    myline_max.cycles = calloc(g_num_cycle_ctrs, sizeof(float));
     myline_max.ev_counters = calloc(g_num_ev_ctrs_pe, sizeof(unsigned int));
     myline_max.kp_counters = calloc(g_num_kp, sizeof(unsigned int*));
     for (i = 0; i < g_num_kp; i++)
@@ -543,7 +541,7 @@ void rt_read_lps(FILE *file, FILE *output, FILE *lp_out, FILE *kp_out)
         myline_max.lp_counters[i] = calloc(g_num_ev_ctrs_lp, sizeof(unsigned int));
     myline_max.nsend_net_remote = calloc(max_lps, sizeof(int));
     myline_min.time_ahead_gvt = calloc(g_num_kp, sizeof(float));
-    myline_min.cycles = calloc(g_num_cycle_ctrs, sizeof(tw_clock));
+    myline_min.cycles = calloc(g_num_cycle_ctrs, sizeof(float));
     myline_min.ev_counters = calloc(g_num_ev_ctrs_pe, sizeof(unsigned int));
     myline_min.kp_counters = calloc(g_num_kp, sizeof(unsigned int*));
     for (i = 0; i < g_num_kp; i++)
@@ -562,7 +560,7 @@ void rt_read_lps(FILE *file, FILE *output, FILE *lp_out, FILE *kp_out)
             fread(&myline_max.ts, sizeof(myline_max.ts), 1, file);
             fread(&myline_max.gvt, sizeof(myline_max.gvt), 1, file);
             fread(&myline_max.time_ahead_gvt[0], sizeof(float), g_num_kp, file);
-            fread(&myline_max.cycles[0], sizeof(tw_clock), g_num_cycle_ctrs, file);
+            fread(&myline_max.cycles[0], sizeof(float), g_num_cycle_ctrs, file);
             fread(&myline_max.ev_counters[0], sizeof(unsigned int), g_num_ev_ctrs_pe, file);
             for (i = 0; i < g_num_kp; i++)
                 fread(&myline_max.kp_counters[i][0], sizeof(unsigned int), g_num_ev_ctrs_kp, file);
@@ -577,7 +575,7 @@ void rt_read_lps(FILE *file, FILE *output, FILE *lp_out, FILE *kp_out)
             fread(&myline_min.ts, sizeof(myline_min.ts), 1, file);
             fread(&myline_min.gvt, sizeof(myline_min.gvt), 1, file);
             fread(&myline_min.time_ahead_gvt[0], sizeof(float), g_num_kp, file);
-            fread(&myline_min.cycles[0], sizeof(tw_clock), g_num_cycle_ctrs, file);
+            fread(&myline_min.cycles[0], sizeof(float), g_num_cycle_ctrs, file);
             fread(&myline_min.ev_counters[0], sizeof(unsigned int), g_num_ev_ctrs_pe, file);
             for (i = 0; i < g_num_kp; i++)
                 fread(&myline_min.kp_counters[i][0], sizeof(unsigned int), g_num_ev_ctrs_kp, file);
@@ -595,7 +593,7 @@ void event_read(FILE *file, FILE *output)
     if (g_combine)
         fprintf(output, "src_lp,dest_lp,recv_ts_vt,event_count\n");
     else
-        fprintf(output, "src_lp,dest_lp,recv_ts_vt,recv_ts_rt,event_type\n");
+        fprintf(output, "src_lp,dest_lp,recv_ts_vt,recv_ts_rt,duration,event_type\n");
 
     while (!feof(file))
     {
@@ -650,7 +648,7 @@ void print_gvt_struct(FILE *output, gvt_line *line)
     fprintf(output, "%u,%f,", line->id, line->ts);
     for (i = 0; i < g_num_gvt_vals_pe; i++)
         fprintf(output, "%u,", line->values[i]);
-    fprintf(output, "%d,%d,%f\n", line->nsend_net_remote, line->net_events, line->efficiency);
+    fprintf(output, "%d,%f\n", line->nsend_net_remote, line->efficiency);
 }
 
 void print_gvt_lps_struct(FILE *output, FILE *lp_out, FILE *kp_out, gvt_line_lps *line, int num_lps)
@@ -689,7 +687,7 @@ void print_rt_struct(FILE *output, FILE *kp_out, rt_line *line)
 #ifdef BGQ
         fprintf(output, ",%u", line->cycles[i]);
 #else
-        fprintf(output, ",%"PRIu64, line->cycles[i]);
+        fprintf(output, ",%f", line->cycles[i]);
 #endif
     for (i = 0; i < g_num_ev_ctrs_pe; i++)
         fprintf(output, ",%u", line->ev_counters[i]);
@@ -710,7 +708,7 @@ void print_rt_lps_struct(FILE *output, FILE *lp_out, FILE *kp_out, rt_line_lps *
 #ifdef BGQ
         fprintf(output, ",%u", line->cycles[i]);
 #else
-        fprintf(output, ",%"PRIu64, line->cycles[i]);
+        fprintf(output, ",%f", line->cycles[i]);
 #endif
     for (i = 0; i < g_num_ev_ctrs_pe; i++)
         fprintf(output, ",%u", line->ev_counters[i]);
@@ -736,7 +734,7 @@ void print_rt_lps_struct(FILE *output, FILE *lp_out, FILE *kp_out, rt_line_lps *
 
 void print_event_struct(FILE *output, event_line *line)
 {
-    fprintf(output, "%"PRIu64",%"PRIu64",%f,%f,%d\n", line->src_lp, line->dest_lp, line->recv_ts_vt, line->recv_ts_rt, line->event_type);
+    fprintf(output, "%"PRIu64",%"PRIu64",%f,%f,%f,%d\n", line->src_lp, line->dest_lp, line->recv_ts_vt, line->recv_ts_rt, line->duration, line->event_type);
 }
 
 void print_binned_events(FILE *output)
