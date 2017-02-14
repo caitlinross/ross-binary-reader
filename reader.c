@@ -42,6 +42,7 @@ typedef struct gvt_line gvt_line;
 struct gvt_line{
     unsigned short id;
     float ts;
+    float current_rt;
     unsigned int *values;
     int nsend_net_remote;
     float efficiency;
@@ -51,7 +52,9 @@ typedef struct gvt_line_lps gvt_line_lps;
 struct gvt_line_lps{
     unsigned short id;
     float ts;
+    float current_rt;
     unsigned int *values;
+    int net_events;
     float efficiency;
     unsigned int **kp_vals;
     unsigned int **lp_vals;
@@ -416,12 +419,13 @@ void gvt_read(FILE *file, FILE *output)
 {
     gvt_line myline;
     myline.values = calloc(g_num_gvt_vals_pe, sizeof(unsigned int));
-    fprintf(output, "PE_ID,GVT,all_reduce_count,events_processed,events_aborted,events_rolled_back,event_ties,total_rollbacks,"
+    fprintf(output, "PE_ID,GVT,current_real_time,all_reduce_count,events_processed,events_aborted,events_rolled_back,event_ties,total_rollbacks,"
             "secondary_rollbacks,fossil_collects,network_sends,network_recvs,remote_events,efficiency\n");
     while (!feof(file))
     {
         fread(&myline.id, sizeof(myline.id), 1, file);
         fread(&myline.ts, sizeof(myline.ts), 1, file);
+        fread(&myline.current_rt, sizeof(myline.current_rt), 1, file);
         fread(&myline.values[0], sizeof(unsigned int), g_num_gvt_vals_pe, file);
         fread(&myline.nsend_net_remote, sizeof(myline.nsend_net_remote), 1, file);
         fread(&myline.efficiency, sizeof(myline.efficiency), 1, file);
@@ -435,9 +439,9 @@ void gvt_read_lps(FILE *file, FILE *output, FILE *lp_out, FILE *kp_out)
     int max_lps = g_lps_per_pe[0];
     int min_lps = g_lps_per_pe[g_num_pe-1];
     unsigned short id;
-    fprintf(output, "PE_ID,GVT,all_reduce_count,events_aborted,event_ties,fossil_collects,efficiency\n");
-    fprintf(lp_out, "LP_ID,KP_ID,PE_ID,GVT,events_processed,events_rolled_back,remote_sends,remote_recvs,remote_events\n");
-    fprintf(kp_out, "KP_ID,PE_ID,GVT,total_rollbacks,secondary_rollbacks\n");
+    fprintf(output, "PE_ID,GVT,current_real_time,all_reduce_count,events_aborted,event_ties,fossil_collects,net_events,efficiency\n");
+    fprintf(lp_out, "LP_ID,KP_ID,PE_ID,GVT,current_real_time,events_processed,events_rolled_back,remote_sends,remote_recvs,remote_events\n");
+    fprintf(kp_out, "KP_ID,PE_ID,GVT,current_real_time,total_rollbacks,secondary_rollbacks\n");
 
     gvt_line_lps myline_max, myline_min;
     myline_max.values = calloc(g_num_gvt_vals_pe, sizeof(unsigned int));
@@ -469,26 +473,34 @@ void gvt_read_lps(FILE *file, FILE *output, FILE *lp_out, FILE *kp_out)
         {
             myline_max.id = id;
             fread(&myline_max.ts, sizeof(myline_max.ts), 1, file);
+            fread(&myline_max.current_rt, sizeof(myline_max.current_rt), 1, file);
             fread(&myline_max.values[0], sizeof(unsigned int), g_num_gvt_vals_pe, file);
+            fread(&myline_max.net_events, sizeof(myline_max.net_events), 1, file);
             fread(&myline_max.efficiency, sizeof(myline_max.efficiency), 1, file);
             for (i = 0; i < g_num_kp; i++)
                 fread(&myline_max.kp_vals[i][0], sizeof(unsigned int), g_num_gvt_vals_kp, file);
             for (i = 0; i < max_lps; i++)
+            {
                 fread(&myline_max.lp_vals[i][0], sizeof(unsigned int), g_num_gvt_vals_lp, file);
-            fread(&myline_max.nsend_net_remote[0], sizeof(unsigned int), max_lps, file);
+                fread(&myline_max.nsend_net_remote[0], sizeof(unsigned int), 1, file);
+            }
             print_gvt_lps_struct(output, lp_out, kp_out, &myline_max, max_lps);
         }
         else
         {
             myline_min.id = id;
             fread(&myline_min.ts, sizeof(myline_min.ts), 1, file);
+            fread(&myline_min.current_rt, sizeof(myline_min.current_rt), 1, file);
             fread(&myline_min.values[0], sizeof(unsigned int), g_num_gvt_vals_pe, file);
+            fread(&myline_min.net_events, sizeof(myline_min.net_events), 1, file);
             fread(&myline_min.efficiency, sizeof(myline_min.efficiency), 1, file);
             for (i = 0; i < g_num_kp; i++)
                 fread(&myline_min.kp_vals[i][0], sizeof(unsigned int), g_num_gvt_vals_kp, file);
             for (i = 0; i < min_lps; i++)
+            {
                 fread(&myline_min.lp_vals[i][0], sizeof(unsigned int), g_num_gvt_vals_lp, file);
-            fread(&myline_min.nsend_net_remote[0], sizeof(unsigned int), min_lps, file);
+                fread(&myline_min.nsend_net_remote[0], sizeof(unsigned int), 1, file);
+            }
             print_gvt_lps_struct(output, lp_out, kp_out, &myline_min, min_lps);
         }
     }
@@ -548,7 +560,7 @@ void rt_read_lps(FILE *file, FILE *output, FILE *lp_out, FILE *kp_out)
         myline_min.kp_counters[i] = calloc(g_num_ev_ctrs_kp, sizeof(unsigned int));
     myline_min.lp_counters = calloc(min_lps, sizeof(unsigned int*));
     for (i = 0; i < min_lps; i++)
-        myline_min.lp_counters[i] = calloc(4, sizeof(unsigned int));
+        myline_min.lp_counters[i] = calloc(g_num_ev_ctrs_lp, sizeof(unsigned int));
     myline_min.nsend_net_remote = calloc(min_lps, sizeof(int));
 
     while (!feof(file))
@@ -565,8 +577,10 @@ void rt_read_lps(FILE *file, FILE *output, FILE *lp_out, FILE *kp_out)
             for (i = 0; i < g_num_kp; i++)
                 fread(&myline_max.kp_counters[i][0], sizeof(unsigned int), g_num_ev_ctrs_kp, file);
             for (i = 0; i < max_lps; i++)
+            {
                 fread(&myline_max.lp_counters[i][0], sizeof(unsigned int), g_num_ev_ctrs_lp, file);
-            fread(&myline_max.nsend_net_remote[0], sizeof(unsigned int), max_lps, file);
+                fread(&myline_max.nsend_net_remote[0], sizeof(int), 1, file);
+            }
             print_rt_lps_struct(output, lp_out, kp_out, &myline_max, max_lps);
         }
         else
@@ -580,8 +594,10 @@ void rt_read_lps(FILE *file, FILE *output, FILE *lp_out, FILE *kp_out)
             for (i = 0; i < g_num_kp; i++)
                 fread(&myline_min.kp_counters[i][0], sizeof(unsigned int), g_num_ev_ctrs_kp, file);
             for (i = 0; i < min_lps; i++)
+            {
                 fread(&myline_min.lp_counters[i][0], sizeof(unsigned int), g_num_ev_ctrs_lp, file);
-            fread(&myline_min.nsend_net_remote[0], sizeof(unsigned int), min_lps, file);
+                fread(&myline_min.nsend_net_remote[0], sizeof(int), 1, file);
+            }
             print_rt_lps_struct(output, lp_out, kp_out, &myline_min, min_lps);
         }
     }
@@ -645,7 +661,7 @@ void bin_event(event_line *line)
 void print_gvt_struct(FILE *output, gvt_line *line)
 {
     int i;
-    fprintf(output, "%u,%f,", line->id, line->ts);
+    fprintf(output, "%u,%f,%f,", line->id, line->ts, line->current_rt);
     for (i = 0; i < g_num_gvt_vals_pe; i++)
         fprintf(output, "%u,", line->values[i]);
     fprintf(output, "%d,%f\n", line->nsend_net_remote, line->efficiency);
@@ -656,14 +672,15 @@ void print_gvt_lps_struct(FILE *output, FILE *lp_out, FILE *kp_out, gvt_line_lps
     int i,j;
     int kp_id;
 
-    fprintf(output, "%u,%f,", line->id, line->ts);
-    for (i = 0; i < g_num_ev_ctrs_pe; i++)
+    fprintf(output, "%u,%f,%f,", line->id, line->ts, line->current_rt);
+    for (i = 0; i < g_num_gvt_vals_pe; i++)
         fprintf(output, "%u,", line->values[i]);
+    fprintf(output, "%d,", line->net_events);
     fprintf(output, "%f\n", line->efficiency);
 
     for (i = 0; i < g_num_kp; i++)
     {
-        fprintf(kp_out, "%d,%u,%f", (line->id *g_num_kp + i), line->id, line->ts);
+        fprintf(kp_out, "%d,%u,%f,%f", (line->id *g_num_kp + i), line->id, line->ts, line->current_rt);
         for (j = 0; j < g_num_gvt_vals_kp; j++)
             fprintf(kp_out, ",%u", line->kp_vals[i][j]);
         fprintf(kp_out, "\n");
@@ -672,7 +689,7 @@ void print_gvt_lps_struct(FILE *output, FILE *lp_out, FILE *kp_out, gvt_line_lps
     for (i = 0; i < num_lps; i++)
     {
         kp_id = i % g_num_kp;
-        fprintf(lp_out, "%d,%d,%u,%f", (g_total_lp_offsets[line->id] + i), (line->id *g_num_kp + kp_id), line->id, line->ts);
+        fprintf(lp_out, "%d,%d,%u,%f,%f", (g_total_lp_offsets[line->id] + i), (line->id *g_num_kp + kp_id), line->id, line->ts, line->current_rt);
         for (j = 0; j < g_num_gvt_vals_lp; j++)
             fprintf(lp_out, ",%u", line->lp_vals[i][j]);
         fprintf(lp_out, ",%d\n", line->nsend_net_remote[i]);
