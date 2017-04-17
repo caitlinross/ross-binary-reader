@@ -89,9 +89,10 @@ struct event_line{
     tw_lpid src_lp;
     tw_lpid dest_lp;
     tw_stime recv_ts_vt;
+    tw_stime send_ts_vt;
     tw_stime recv_ts_rt;
     tw_stime duration;
-    int event_type;
+    //int event_type;
 } __attribute__((__packed__));
 
 typedef struct event_bin event_bin;
@@ -609,7 +610,7 @@ void event_read(FILE *file, FILE *output)
     if (g_combine)
         fprintf(output, "src_lp,dest_lp,recv_ts_vt,event_count\n");
     else
-        fprintf(output, "src_lp,dest_lp,recv_ts_vt,recv_ts_rt,duration,event_type\n");
+        fprintf(output, "src_lp,dest_lp,send_ts_vt,recv_ts_vt,recv_ts_rt,duration\n");
 
     while (!feof(file))
     {
@@ -751,7 +752,7 @@ void print_rt_lps_struct(FILE *output, FILE *lp_out, FILE *kp_out, rt_line_lps *
 
 void print_event_struct(FILE *output, event_line *line)
 {
-    fprintf(output, "%"PRIu64",%"PRIu64",%f,%f,%f,%d\n", line->src_lp, line->dest_lp, line->recv_ts_vt, line->recv_ts_rt, line->duration, line->event_type);
+    fprintf(output, "%"PRIu64",%"PRIu64",%f,%f,%f,%f\n", line->src_lp, line->dest_lp, line->send_ts_vt, line->recv_ts_vt, line->recv_ts_rt, line->duration);
 }
 
 void print_binned_events(FILE *output)
