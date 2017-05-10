@@ -171,7 +171,7 @@ void gvt_read_lps(FILE *file, FILE *output, FILE *lp_out, FILE *kp_out);
 void rt_read(FILE *file, FILE *output, FILE *kp_out);
 void rt_read_lps(FILE *file, FILE *output, FILE *lp_out, FILE *kp_out);
 void event_read(FILE *file, FILE *output);
-void model_read(FILE *file, FILE *term_out, FILE *router_out);
+void model_read(FILE *file, FILE *term_out_gvt, FILE *term_out_rt, FILE *router_out_gvt, FILE *router_out_rt);
 void print_gvt_struct(FILE *output, gvt_line *line);
 void print_gvt_lps_struct(FILE *output, FILE *lp_out, FILE *kp_out, gvt_line_lps *line, int num_lps);
 void print_rt_struct(FILE *output, FILE *kp_out, rt_line *line);
@@ -188,7 +188,8 @@ static struct argp argp = { options, parse_opt, args_doc, doc };
 int main(int argc, char **argv)
 {
     FILE *file = NULL, *output = NULL, *lp_out = NULL, *kp_out = NULL;
-    FILE *term_out = NULL, *router_out = NULL;
+    FILE *term_out_gvt = NULL, *router_out_gvt = NULL;
+    FILE *term_out_rt = NULL, *router_out_rt = NULL;
     char filename[MAX_LEN];
     char tmpname[MAX_LEN];
     struct arguments args = {0};
@@ -237,10 +238,14 @@ int main(int argc, char **argv)
         read_lptypes();
 
         // now can start reading model stats file
-        sprintf(filename, "%s%smodel-terminals.csv", path, prefix);
-        term_out = fopen(filename, "w");
-        sprintf(filename, "%s%smodel-routers.csv", path, prefix);
-        router_out = fopen(filename, "w");
+        sprintf(filename, "%s%smodel-terminals-gvt.csv", path, prefix);
+        term_out_gvt = fopen(filename, "w");
+        sprintf(filename, "%s%smodel-routers-gvt.csv", path, prefix);
+        router_out_gvt = fopen(filename, "w");
+        sprintf(filename, "%s%smodel-terminals-rt.csv", path, prefix);
+        term_out_rt = fopen(filename, "w");
+        sprintf(filename, "%s%smodel-routers-rt.csv", path, prefix);
+        router_out_rt = fopen(filename, "w");
     }
 
     if (args.filetype == GVT || args.filetype == RT)
@@ -271,7 +276,7 @@ int main(int argc, char **argv)
     if (args.filetype == EVENT)
         event_read(file, output);
     if (args.filetype == MODEL)
-        model_read(file, term_out, router_out);
+        model_read(file, term_out_gvt, term_out_rt, router_out_gvt, router_out_rt);
 
     if (file)
         fclose(file);
@@ -281,10 +286,14 @@ int main(int argc, char **argv)
         fclose(kp_out);
     if (lp_out)
         fclose(lp_out);
-    if (term_out)
-        fclose(term_out);
-    if (router_out)
-        fclose(router_out);
+    if (term_out_gvt)
+        fclose(term_out_gvt);
+    if (term_out_rt)
+        fclose(term_out_rt);
+    if (router_out_gvt)
+        fclose(router_out_gvt);
+    if (router_out_rt)
+        fclose(router_out_rt);
 
     return EXIT_SUCCESS;
 }
@@ -757,7 +766,7 @@ void bin_event(event_line *line)
     }
 }
 
-void model_read(FILE *file, FILE *term_out, FILE *router_out)
+void model_read(FILE *file, FILE *term_out_gvt, FILE *term_out_rt, FILE *router_out_gvt, FILE *router_out_rt)
 {
     int i;
     int test_flag = 0;
@@ -768,10 +777,14 @@ void model_read(FILE *file, FILE *term_out, FILE *router_out)
     router.busy_time = calloc(g_radix, sizeof(tw_stime));
     router.link_traffic = calloc(g_radix, sizeof(int64_t));
 
-    fprintf(term_out, "LP_ID,terminal_id,real_TS,current_GVT,stats_type,");
-    fprintf(term_out, "fin_chunks,data_size,fin_hops,fin_chunks_time,busy_time\n");
-    fprintf(router_out, "LP_ID,router_id,port_id,real_TS,current_GVT,stats_type,");
-    fprintf(router_out, "busy_time,link_traffic\n");
+    fprintf(term_out_gvt, "LP_ID,terminal_id,real_TS,current_GVT,");
+    fprintf(term_out_gvt, "fin_chunks,data_size,fin_hops,fin_chunks_time,busy_time\n");
+    fprintf(term_out_rt, "LP_ID,terminal_id,real_TS,current_GVT,");
+    fprintf(term_out_rt, "fin_chunks,data_size,fin_hops,fin_chunks_time,busy_time\n");
+    fprintf(router_out_gvt, "LP_ID,router_id,port_id,real_TS,current_GVT,");
+    fprintf(router_out_gvt, "busy_time,link_traffic\n");
+    fprintf(router_out_rt, "LP_ID,router_id,port_id,real_TS,current_GVT,");
+    fprintf(router_out_rt, "busy_time,link_traffic\n");
 
     while (!feof(file))
     {
@@ -795,7 +808,10 @@ void model_read(FILE *file, FILE *term_out, FILE *router_out)
                 fread(&router.busy_time[i], sizeof(router.busy_time[i]), 1, file);
                 fread(&router.link_traffic[i], sizeof(router.link_traffic[i]), 1, file);
             }
-            print_dfly_router_struct(router_out, &mh, &router);
+            if (mh.stats_type == 1)
+                print_dfly_router_struct(router_out_gvt, &mh, &router);
+            else if (mh.stats_type == 2)
+                print_dfly_router_struct(router_out_rt, &mh, &router);
         }
         else if (g_lptypes[mh.lpid] == DFLY_TERM)
         {
@@ -805,7 +821,10 @@ void model_read(FILE *file, FILE *term_out, FILE *router_out)
             fread(&terminal.fin_hops, sizeof(terminal.fin_hops), 1, file);
             fread(&terminal.fin_chunks_time, sizeof(terminal.fin_chunks_time), 1, file);
             fread(&terminal.busy_time, sizeof(terminal.busy_time), 1, file);
-            print_dfly_terminal_struct(term_out, &mh, &terminal);
+            if (mh.stats_type == 1)
+                print_dfly_terminal_struct(term_out_gvt, &mh, &terminal);
+            else if (mh.stats_type == 2)
+                print_dfly_terminal_struct(term_out_rt, &mh, &terminal);
         }
         else
             printf("ERROR: LP %lu is not a valid router or terminal id\n", mh.lpid);
@@ -928,13 +947,13 @@ void print_dfly_router_struct(FILE *router_out, model_header *mh, dfly_router *r
 {
     int i;
     for (i=0; i < g_radix; i++)
-        fprintf(router_out, "%"PRIu64",%"PRIu64",%d,%f,%f,%d,%f,%ld\n", mh->lpid, router->router_id, i, mh->rt, mh->gvt, mh->stats_type,
+        fprintf(router_out, "%"PRIu64",%"PRIu64",%d,%f,%f,%f,%ld\n", mh->lpid, router->router_id, i, mh->rt, mh->gvt,
                 router->busy_time[i], router->link_traffic[i]);
 }
 
 void print_dfly_terminal_struct(FILE *terminal_out, model_header *mh, dfly_term *terminal)
 {
-    fprintf(terminal_out, "%"PRIu64",%"PRIu64",%f,%f,%d,%ld,%ld,%ld,%f,%f\n", mh->lpid, terminal->term_id, mh->rt, mh->gvt, mh->stats_type,
+    fprintf(terminal_out, "%"PRIu64",%"PRIu64",%f,%f,%ld,%ld,%ld,%f,%f\n", mh->lpid, terminal->term_id, mh->rt, mh->gvt,
             terminal->fin_chunks, terminal->data_size, terminal->fin_hops, terminal->fin_chunks_time, terminal->busy_time);
 
 }

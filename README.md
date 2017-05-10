@@ -11,24 +11,33 @@ If you're running this on a BG/Q, you need to add the -DBGQ flag to the Makefile
 If you're running this on a Mac, add -DMACOS, because Macs do not have the argp header needed for 
 the runtime argument library used.
 
-NOTE: Right now you can't read data created on a system with a different endianness
+NOTE 0: You can't read data created on a system with a different endianness
 from the system you are running the reader on (i.e., don't read BG/Q data while
 running the reader on an x86 system).
+
+NOTE 1: I haven't actually kept testing on Mac as I no longer do development on the Mac.
 
 
 ### Running the reader
 
+You need the ross-stats-README.txt file that is output
+automatically by ROSS as it has some information that the reader needs.  
+It is expected to be in the same directory as your binary files.  
+Also if you're reading model level sampling data, you need an additional lp-mapping.txt file in the directory.
+This is a csv of the format `PE,KP,LP,LP_type`
+
 You can type ./ross-reader --help to see an explanation for the available 
-options, which are also explained here. 
+options, which are also explained here.
 
 `-f` or `--filename` is for inputting the filename of the binary file to be read.
 
 `-t` or `--filetype` is for the type of file
 
 File types:
-0 GVT-based instrumentation
-1 Real time sampling
-2 event tracing
+- 0 GVT-based instrumentation
+- 1 Real time sampling
+- 2 event tracing
+- 3 model level sampling data
 
 The above arguments are required, the following are optional:
 
@@ -38,6 +47,8 @@ in that bin. This is useful if your event trace is really large and you'd like t
 (at the cost of coarser grained data of course).
 
 `-b` or `--bin-size` is to change the virtual time bin size.  Default is 10000.
+
+NOTE 2: Features related to these optional arguments are a work in progress.  They may not work correctly.
 
 ### Output
 Everything is output as a text file delimited by commas. The event tracing always outputs one file.
