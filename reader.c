@@ -15,7 +15,7 @@ static char doc[] = "Reader for the binary data collection files from ROSS";
 static char args_doc[] = "";
 static struct argp_option options[] = {
     {"filename",  'f',  "str",  0,  "path of file to read" },
-    {"filetype", 't',  "n",  0,  "type of file to read; 0: GVT data, 1: real time data, 2: event data" },
+    {"filetype", 't',  "n",  0,  "type of file to read; 0: GVT data, 1: real time data, 2: event data, 3: model" },
     {"combine-events", 'c', 0, 0, "bin event trace to reduce data size"},
     {"bin-size", 'b', "n", 0, "amount of virtual time in bin for binning event trace (default: 10000)"},
     { 0 }
@@ -91,8 +91,8 @@ struct event_line{
     tw_stime recv_ts_vt;
     tw_stime send_ts_vt;
     tw_stime recv_ts_rt;
-    tw_stime duration;
-    //int event_type;
+    //tw_stime duration;
+    int event_type;
 } __attribute__((__packed__));
 
 typedef struct event_bin event_bin;
@@ -102,11 +102,44 @@ struct event_bin{
     event_bin *next;
 } __attribute__((__packed__));
 
+typedef struct model_header model_header;
+struct model_header{
+    tw_lpid lpid;
+    tw_stime rt;
+    tw_stime gvt;
+    int stats_type;  //GVT-based or real time based
+} __attribute__((__packed__));
+
+typedef struct dfly_router dfly_router;
+struct dfly_router{
+    tw_lpid router_id;
+    tw_stime *busy_time; // need to know radix
+    int64_t *link_traffic;
+} __attribute__((__packed__));
+
+typedef struct dfly_term dfly_term;
+struct dfly_term{
+    tw_lpid term_id;
+    long fin_chunks;
+    long data_size;
+    long fin_hops;
+    tw_stime fin_chunks_time;
+    tw_stime busy_time;
+} __attribute__((__packed__));
+
 typedef enum {
     GVT,
     RT,
-    EVENT
+    EVENT, 
+    MODEL
 } file_types;
+
+typedef enum {
+    NW_LP,
+    SERVER,
+    DFLY_ROUTER,
+    DFLY_TERM
+} lp_types;
 
 int g_granularity = 0;
 int g_num_pe = 0;
@@ -124,17 +157,21 @@ int g_combine = 0;
 int g_num_bins = 0;
 int g_bin_size = 10000;
 int g_total_lps = 0;
+int g_radix = 20;  // TODO get ROSS to output this
+int *g_lptypes;
 event_bin *g_bin_list;
 event_bin *g_cur_bin;
 event_bin *g_last_bin;
 
 static error_t parse_opt (int key, char *arg, struct argp_state *state);
 void read_metadata(char *path, char *prefix);
+void read_lptypes();
 void gvt_read(FILE *file, FILE *output);
 void gvt_read_lps(FILE *file, FILE *output, FILE *lp_out, FILE *kp_out);
 void rt_read(FILE *file, FILE *output, FILE *kp_out);
 void rt_read_lps(FILE *file, FILE *output, FILE *lp_out, FILE *kp_out);
 void event_read(FILE *file, FILE *output);
+void model_read(FILE *file, FILE *term_out, FILE *router_out);
 void print_gvt_struct(FILE *output, gvt_line *line);
 void print_gvt_lps_struct(FILE *output, FILE *lp_out, FILE *kp_out, gvt_line_lps *line, int num_lps);
 void print_rt_struct(FILE *output, FILE *kp_out, rt_line *line);
@@ -143,12 +180,15 @@ void print_event_struct(FILE *output, event_line *line);
 char *get_prefix(char *filename, char *path);
 void bin_event(event_line *line);
 void print_binned_events(FILE *output);
+void print_dfly_router_struct(FILE *router_out, model_header *mh, dfly_router *router);
+void print_dfly_terminal_struct(FILE *terminal_out, model_header *mh, dfly_term *terminal);
 
 static struct argp argp = { options, parse_opt, args_doc, doc };
 
 int main(int argc, char **argv)
 {
     FILE *file = NULL, *output = NULL, *lp_out = NULL, *kp_out = NULL;
+    FILE *term_out = NULL, *router_out = NULL;
     char filename[MAX_LEN];
     char tmpname[MAX_LEN];
     struct arguments args = {0};
@@ -191,7 +231,19 @@ int main(int argc, char **argv)
         sprintf(filename, "%s%sevtrace.csv", path, prefix);
         output = fopen(filename, "w");
     }
-    if (args.filetype != EVENT)
+    else if (args.filetype == MODEL)
+    {
+        //need to first read in LP types
+        read_lptypes();
+
+        // now can start reading model stats file
+        sprintf(filename, "%s%smodel-terminals.csv", path, prefix);
+        term_out = fopen(filename, "w");
+        sprintf(filename, "%s%smodel-routers.csv", path, prefix);
+        router_out = fopen(filename, "w");
+    }
+
+    if (args.filetype == GVT || args.filetype == RT)
     {
         sprintf(filename, "%s-pes.csv",tmpname);
         output = fopen(filename, "w");
@@ -218,6 +270,8 @@ int main(int argc, char **argv)
         rt_read_lps(file, output, lp_out, kp_out);
     if (args.filetype == EVENT)
         event_read(file, output);
+    if (args.filetype == MODEL)
+        model_read(file, term_out, router_out);
 
     if (file)
         fclose(file);
@@ -227,6 +281,10 @@ int main(int argc, char **argv)
         fclose(kp_out);
     if (lp_out)
         fclose(lp_out);
+    if (term_out)
+        fclose(term_out);
+    if (router_out)
+        fclose(router_out);
 
     return EXIT_SUCCESS;
 }
@@ -256,6 +314,46 @@ parse_opt (int key, char *arg, struct argp_state *state)
             return ARGP_ERR_UNKNOWN;
     }
     return 0;
+}
+
+void read_lptypes()
+{
+    char lp_filename[MAX_LEN];
+    char *line = NULL;
+    FILE *lp_file;
+    size_t n = 0;
+    size_t read;
+    int i, j;
+    char delim[] = ",";
+    char *str, *token, *saveptr;
+
+    g_lptypes = calloc(g_total_lps, sizeof(int));
+    sprintf(lp_filename, "lp-mapping.txt");
+    lp_file = fopen(lp_filename, "r");
+    i = 0;
+    while ((read = getline(&line, &n, lp_file)) != -1)
+    {
+        line[read-1] = '\0';
+        if (strncmp(line, "PE", 2) != 0)
+        {
+            for (j = 1, str = line; ; j++, str = NULL)
+            {
+                token = strtok_r(str, delim, &saveptr);
+                if (token == NULL)
+                    break;
+
+                if (strcmp(token, "nw-lp") == 0)
+                    g_lptypes[i] = NW_LP;
+                else if (strcmp(token, "server") == 0)
+                    g_lptypes[i] = SERVER;
+                else if (strcmp(token, "terminal") == 0)
+                    g_lptypes[i] = DFLY_TERM;
+                else if (strcmp(token, "router") == 0)
+                    g_lptypes[i] = DFLY_ROUTER;
+            }
+            i++;
+        }
+    }
 }
 
 void read_metadata(char *path, char *prefix)
@@ -403,7 +501,7 @@ char *get_prefix(char *filename, char *path)
         token = strtok_r(str, delim, &saveptr);
         if (token == NULL)
             break;
-        if (strcmp(saveptr, "gvt.bin") == 0 || strcmp(saveptr, "rt.bin") == 0 || strcmp(saveptr, "evtrace.bin") == 0)
+        if (strcmp(saveptr, "gvt.bin") == 0 || strcmp(saveptr, "rt.bin") == 0 || strcmp(saveptr, "evtrace.bin") == 0 || strcmp(saveptr, "model.bin") == 0)
             end = 1;
 
         strcpy(&readme_file[idx], token);
@@ -610,7 +708,7 @@ void event_read(FILE *file, FILE *output)
     if (g_combine)
         fprintf(output, "src_lp,dest_lp,recv_ts_vt,event_count\n");
     else
-        fprintf(output, "src_lp,dest_lp,send_ts_vt,recv_ts_vt,recv_ts_rt,duration\n");
+        fprintf(output, "src_lp,dest_lp,recv_ts_vt,recv_ts_rt,event_type\n");
 
     while (!feof(file))
     {
@@ -656,6 +754,61 @@ void bin_event(event_line *line)
             (g_cur_bin->event_count[line->src_lp][line->dest_lp]) += 1;
             break;
         }
+    }
+}
+
+void model_read(FILE *file, FILE *term_out, FILE *router_out)
+{
+    int i;
+    int test_flag = 0;
+    model_header mh;
+    dfly_router router;
+    dfly_term terminal;
+
+    router.busy_time = calloc(g_radix, sizeof(tw_stime));
+    router.link_traffic = calloc(g_radix, sizeof(int64_t));
+
+    fprintf(term_out, "LP_ID,terminal_id,real_TS,current_GVT,stats_type,");
+    fprintf(term_out, "fin_chunks,data_size,fin_hops,fin_chunks_time,busy_time\n");
+    fprintf(router_out, "LP_ID,router_id,port_id,real_TS,current_GVT,stats_type,");
+    fprintf(router_out, "busy_time,link_traffic\n");
+
+    while (!feof(file))
+    {
+        if (test_flag)
+        {
+            char trash[44];
+            fread(&trash[0], sizeof(char), 44, file );
+            test_flag = 0;
+        }
+        fread(&mh.lpid, sizeof(mh.lpid), 1, file);
+        fread(&mh.rt, sizeof(mh.rt), 1, file);
+        fread(&mh.gvt, sizeof(mh.gvt), 1, file);
+        fread(&mh.stats_type, sizeof(mh.stats_type), 1, file);
+
+        // find out whether the lpid makes it a terminal or a router to read next part
+        if (g_lptypes[mh.lpid] == DFLY_ROUTER)
+        {
+            fread(&router.router_id, sizeof(router.router_id), 1, file);
+            for (i = 0; i < g_radix; i++)
+            {
+                fread(&router.busy_time[i], sizeof(router.busy_time[i]), 1, file);
+                fread(&router.link_traffic[i], sizeof(router.link_traffic[i]), 1, file);
+            }
+            print_dfly_router_struct(router_out, &mh, &router);
+        }
+        else if (g_lptypes[mh.lpid] == DFLY_TERM)
+        {
+            fread(&terminal.term_id, sizeof(terminal.term_id), 1, file);
+            fread(&terminal.fin_chunks, sizeof(terminal.fin_chunks), 1, file);
+            fread(&terminal.data_size, sizeof(terminal.data_size), 1, file);
+            fread(&terminal.fin_hops, sizeof(terminal.fin_hops), 1, file);
+            fread(&terminal.fin_chunks_time, sizeof(terminal.fin_chunks_time), 1, file);
+            fread(&terminal.busy_time, sizeof(terminal.busy_time), 1, file);
+            print_dfly_terminal_struct(term_out, &mh, &terminal);
+        }
+        else
+            printf("ERROR: LP %lu is not a valid router or terminal id\n", mh.lpid);
     }
 }
 
@@ -752,7 +905,7 @@ void print_rt_lps_struct(FILE *output, FILE *lp_out, FILE *kp_out, rt_line_lps *
 
 void print_event_struct(FILE *output, event_line *line)
 {
-    fprintf(output, "%"PRIu64",%"PRIu64",%f,%f,%f,%f\n", line->src_lp, line->dest_lp, line->send_ts_vt, line->recv_ts_vt, line->recv_ts_rt, line->duration);
+    fprintf(output, "%"PRIu64",%"PRIu64",%f,%f,%d\n", line->src_lp, line->dest_lp, line->recv_ts_vt, line->recv_ts_rt, line->event_type);
 }
 
 void print_binned_events(FILE *output)
@@ -769,4 +922,19 @@ void print_binned_events(FILE *output)
             }
         }
     }
+}
+
+void print_dfly_router_struct(FILE *router_out, model_header *mh, dfly_router *router)
+{
+    int i;
+    for (i=0; i < g_radix; i++)
+        fprintf(router_out, "%"PRIu64",%"PRIu64",%d,%f,%f,%d,%f,%ld\n", mh->lpid, router->router_id, i, mh->rt, mh->gvt, mh->stats_type,
+                router->busy_time[i], router->link_traffic[i]);
+}
+
+void print_dfly_terminal_struct(FILE *terminal_out, model_header *mh, dfly_term *terminal)
+{
+    fprintf(terminal_out, "%"PRIu64",%"PRIu64",%f,%f,%d,%ld,%ld,%ld,%f,%f\n", mh->lpid, terminal->term_id, mh->rt, mh->gvt, mh->stats_type,
+            terminal->fin_chunks, terminal->data_size, terminal->fin_hops, terminal->fin_chunks_time, terminal->busy_time);
+
 }
