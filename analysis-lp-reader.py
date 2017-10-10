@@ -9,15 +9,22 @@ router_out = open("router-output.csv", "w")
 kp_out = open("kp-output.csv", "w")
 lp_out = open("lp-output.csv", "w")
 
+radix = 42
+
 # write out headers
 kp_out.write("KP,PE,VT,RT,time_ahead_gvt,rb_total,rb_primary,rb_secondary\n")
 lp_out.write("LP,KP,PE,VT,RT,fwd_ev,rev_ev,network_sends,network_recvs\n")
-router_out.write("router_id,end_time,fwd_events,rev_events,busy_time,link_traffic\n")
-terminal_out.write("terminal_id,fin_chunks,data_size,fin_hops,fin_chunks,busy_time,end_time,fwd_events,rev_events\n")
+terminal_out.write("LP,KP,PE,terminal_id,fin_chunks,data_size,fin_hops,fin_chunks_time,busy_time,end_time,fwd_events,rev_events\n")
+router_out.write("LP,KP,PE,router_id,end_time,fwd_events,rev_events")
+#busy_time,link_traffic\n")
+for i in range(radix):
+    router_out.write(",busy_time_" + str(i))
+for i in range(radix):
+    router_out.write(",link_traffic_" + str(i))
+router_out.write("\n")
 
 metadata_sz = 48 
 
-radix = 42
 lpid = 0
 kpid = 1
 peid = 2
@@ -29,6 +36,7 @@ flag = 6
 with open(filename, "rb") as binary_file:
     binary_file.seek(0, 2)
     num_bytes = binary_file.tell()
+    print("num_byes == " + str(num_bytes))
 
     pos = 0
     while (pos < num_bytes):
@@ -69,6 +77,7 @@ with open(filename, "rb") as binary_file:
             lp_out.write("\n")
         elif metadata[flag] == 3: #  model data
             if (metadata[sample_sz] == 72):
+                terminal_out.write(','.join(str(p) for p in metadata[lpid:peid+1]) + ",")
                 terminal_out.write(','.join(str(p) for p in data))
                 terminal_out.write("\n")
             else:
@@ -76,5 +85,8 @@ with open(filename, "rb") as binary_file:
                 new_list.append(data[0]) # elements 1 and 2 are just mem addresses
                 new_list.extend(data[3:])
                 #print(new_list)
+                router_out.write(','.join(str(p) for p in metadata[lpid:peid+1]) + ",")
                 router_out.write(','.join(str(p) for p in new_list))
                 router_out.write("\n")
+
+    print("position == " + str(pos))
