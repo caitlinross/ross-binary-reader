@@ -1,18 +1,19 @@
 import sys
 import struct
-import copy
 
 filename = sys.argv[1]
 
 terminal_out = open("terminal-output.csv", "w")
 router_out = open("router-output.csv", "w")
+pe_out = open("pe-output.csv", "w")
 kp_out = open("kp-output.csv", "w")
 lp_out = open("lp-output.csv", "w")
 
-radix = 42
+radix = int(sys.argv[2])
 
 # write out headers
-kp_out.write("KP,PE,VT,RT,time_ahead_gvt,rb_total,rb_primary,rb_secondary\n")
+pe_out.write("PE,VT,RT,last_gvt,num_gvt,net_read_CC,gvt_CC,fossil_collect_CC,event_abort_CC,event_process_CC,pq_CC,rollback_CC,cancel_q_CC,avl_CC\n")
+kp_out.write("KP,PE,VT,RT,time_ahead_gvt,rb_total,rb_primary,rb_secondary,fwd_ev,rev_ev,network_sends,network_recvs\n")
 lp_out.write("LP,KP,PE,VT,RT,fwd_ev,rev_ev,network_sends,network_recvs\n")
 terminal_out.write("LP,KP,PE,terminal_id,fin_chunks,data_size,fin_hops,fin_chunks_time,busy_time,end_time,fwd_events,rev_events\n")
 router_out.write("LP,KP,PE,router_id,end_time,fwd_events,rev_events")
@@ -47,8 +48,10 @@ with open(filename, "rb") as binary_file:
         binary_file.seek(pos)
         struct_str = ""
 
-        if metadata[flag] == 1: # KP data
-            struct_str = "@dQQ"
+        if metadata[flag] == 0: # PE data
+            struct_str = "@dQ9d"
+        elif metadata[flag] == 1: # KP data
+            struct_str = "@dQQQQQQ"
         elif metadata[flag] == 2: # LP data
             struct_str = "@QQQQ"
         elif metadata[flag] == 3: #  model data
@@ -60,13 +63,19 @@ with open(filename, "rb") as binary_file:
         data = struct.unpack(struct_str, binary_file.read(metadata[sample_sz]))
         pos += metadata[sample_sz]
         #print(data)
-            
-        if metadata[flag] == 1: # KP data
+           
+        if metadata[flag] == 0: # PE data
+            pe_data = []
+            pe_data.extend(metadata[peid:real_time+1])
+            pe_data.extend(data)
+            pe_out.write(','.join(str(p) for p in pe_data))
+            pe_out.write("\n")
+        elif metadata[flag] == 1: # KP data
             kp_data = []
             kp_data.extend(metadata[kpid:real_time+1])
             kp_data.extend(data[0:2])
             kp_data.append(data[1] - data[2])
-            kp_data.append(data[2])
+            kp_data.extend(data[2:])
             kp_out.write(','.join(str(p) for p in kp_data))
             kp_out.write("\n")
         elif metadata[flag] == 2: # LP data
