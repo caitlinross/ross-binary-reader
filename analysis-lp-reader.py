@@ -13,7 +13,7 @@ radix = int(sys.argv[2])
 
 # write out headers
 pe_out.write("PE,VT,RT,last_gvt,num_gvt,net_read_CC,gvt_CC,fossil_collect_CC,event_abort_CC,event_process_CC,pq_CC,rollback_CC,cancel_q_CC,avl_CC\n")
-kp_out.write("KP,PE,VT,RT,time_ahead_gvt,rb_total,rb_primary,rb_secondary,fwd_ev,rev_ev,network_sends,network_recvs\n")
+kp_out.write("KP,PE,VT,RT,time_ahead_gvt,efficiency,rb_total,rb_primary,rb_secondary,fwd_ev,rev_ev,network_sends,network_recvs\n")
 lp_out.write("LP,KP,PE,VT,RT,fwd_ev,rev_ev,network_sends,network_recvs\n")
 terminal_out.write("LP,KP,PE,terminal_id,fin_chunks,data_size,fin_hops,fin_chunks_time,busy_time,end_time,fwd_events,rev_events\n")
 router_out.write("LP,KP,PE,router_id,end_time,fwd_events,rev_events")
@@ -51,7 +51,7 @@ with open(filename, "rb") as binary_file:
         if metadata[flag] == 0: # PE data
             struct_str = "@dQ9d"
         elif metadata[flag] == 1: # KP data
-            struct_str = "@dQQQQQQ"
+            struct_str = "@ddQQQQQQ"
         elif metadata[flag] == 2: # LP data
             struct_str = "@QQQQ"
         elif metadata[flag] == 3: #  model data
@@ -73,9 +73,9 @@ with open(filename, "rb") as binary_file:
         elif metadata[flag] == 1: # KP data
             kp_data = []
             kp_data.extend(metadata[kpid:real_time+1])
-            kp_data.extend(data[0:2])
-            kp_data.append(data[1] - data[2])
-            kp_data.extend(data[2:])
+            kp_data.extend(data[0:3])
+            kp_data.append(data[2] - data[3])
+            kp_data.extend(data[3:])
             kp_out.write(','.join(str(p) for p in kp_data))
             kp_out.write("\n")
         elif metadata[flag] == 2: # LP data
