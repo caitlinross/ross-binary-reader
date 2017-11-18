@@ -13,7 +13,7 @@ lp_out = open(stem + "-lp-output.csv", "w")
 radix = int(sys.argv[2])
 
 # write out headers
-pe_out.write("PE,VT,RT,last_gvt,num_gvt,net_read_CC,gvt_CC,fossil_collect_CC,event_abort_CC,event_process_CC,pq_CC,rollback_CC,cancel_q_CC,avl_CC,lookahead\n")
+pe_out.write("PE,VT,RT,last_gvt,num_gvt,rb_total,rb_secondary,fwd_ev,ev_abort,rev_ev,nsend_net,nrecv_net,fc_attempts,pq_size,ev_ties,net_read_CC,gvt_CC,fossil_collect_CC,event_abort_CC,event_process_CC,pq_CC,rollback_CC,cancel_q_CC,avl_CC,lookahead\n")
 kp_out.write("KP,PE,VT,RT,time_ahead_gvt,efficiency,rb_total,rb_primary,rb_secondary,fwd_ev,rev_ev,network_sends,network_recvs\n")
 lp_out.write("LP,KP,PE,VT,RT,fwd_ev,rev_ev,network_sends,network_recvs\n")
 terminal_out.write("LP,KP,PE,terminal_id,fin_chunks,data_size,fin_hops,fin_chunks_time,busy_time,end_time,fwd_events,rev_events\n")
@@ -50,7 +50,7 @@ with open(filename, "rb") as binary_file:
         struct_str = ""
 
         if metadata[flag] == 0: # PE data
-            struct_str = "@dQ9dQ"
+            struct_str = "@d11Q9dQ"
         elif metadata[flag] == 1: # KP data
             struct_str = "@ddQQQQQQ"
         elif metadata[flag] == 2: # LP data
