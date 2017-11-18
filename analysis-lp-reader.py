@@ -2,17 +2,18 @@ import sys
 import struct
 
 filename = sys.argv[1]
+stem = filename.split(".")[0]
 
-terminal_out = open("terminal-output.csv", "w")
-router_out = open("router-output.csv", "w")
-pe_out = open("pe-output.csv", "w")
-kp_out = open("kp-output.csv", "w")
-lp_out = open("lp-output.csv", "w")
+terminal_out = open(stem + "-terminal-output.csv", "w")
+router_out = open(stem + "-router-output.csv", "w")
+pe_out = open(stem + "-pe-output.csv", "w")
+kp_out = open(stem + "-kp-output.csv", "w")
+lp_out = open(stem + "-lp-output.csv", "w")
 
 radix = int(sys.argv[2])
 
 # write out headers
-pe_out.write("PE,VT,RT,last_gvt,num_gvt,net_read_CC,gvt_CC,fossil_collect_CC,event_abort_CC,event_process_CC,pq_CC,rollback_CC,cancel_q_CC,avl_CC\n")
+pe_out.write("PE,VT,RT,last_gvt,num_gvt,net_read_CC,gvt_CC,fossil_collect_CC,event_abort_CC,event_process_CC,pq_CC,rollback_CC,cancel_q_CC,avl_CC,lookahead\n")
 kp_out.write("KP,PE,VT,RT,time_ahead_gvt,efficiency,rb_total,rb_primary,rb_secondary,fwd_ev,rev_ev,network_sends,network_recvs\n")
 lp_out.write("LP,KP,PE,VT,RT,fwd_ev,rev_ev,network_sends,network_recvs\n")
 terminal_out.write("LP,KP,PE,terminal_id,fin_chunks,data_size,fin_hops,fin_chunks_time,busy_time,end_time,fwd_events,rev_events\n")
@@ -24,7 +25,7 @@ for i in range(radix):
     router_out.write(",link_traffic_" + str(i))
 router_out.write("\n")
 
-metadata_sz = 48 
+metadata_sz = 48
 
 lpid = 0
 kpid = 1
@@ -49,7 +50,7 @@ with open(filename, "rb") as binary_file:
         struct_str = ""
 
         if metadata[flag] == 0: # PE data
-            struct_str = "@dQ9d"
+            struct_str = "@dQ9dQ"
         elif metadata[flag] == 1: # KP data
             struct_str = "@ddQQQQQQ"
         elif metadata[flag] == 2: # LP data
@@ -63,7 +64,7 @@ with open(filename, "rb") as binary_file:
         data = struct.unpack(struct_str, binary_file.read(metadata[sample_sz]))
         pos += metadata[sample_sz]
         #print(data)
-           
+
         if metadata[flag] == 0: # PE data
             pe_data = []
             pe_data.extend(metadata[peid:real_time+1])
