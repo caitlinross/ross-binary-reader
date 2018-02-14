@@ -1,7 +1,12 @@
-import sys
 import struct
+import argparse
 
-filename = sys.argv[1]
+ap = argparse.ArgumentParser()
+ap.add_argument("-f", "--filename", required=True, help="binary file to convert")
+ap.add_argument("-r", "--radix", required=True, help="network radix")
+args = vars(ap.parse_args())
+
+filename = args["filename"]
 stem = filename.split(".")[0]
 
 terminal_out = open(stem + "-terminal-output.csv", "w")
@@ -10,7 +15,7 @@ pe_out = open(stem + "-pe-output.csv", "w")
 kp_out = open(stem + "-kp-output.csv", "w")
 lp_out = open(stem + "-lp-output.csv", "w")
 
-radix = int(sys.argv[2])
+radix = int(args["radix"])
 
 # write out headers
 pe_out.write("PE,VT,RT,last_gvt,num_gvt,rb_total,rb_secondary,fwd_ev,ev_abort,rev_ev,nsend_net,nrecv_net,fc_attempts,pq_size,ev_ties,net_read_CC,gvt_CC,fossil_collect_CC,event_abort_CC,event_process_CC,pq_CC,rollback_CC,cancel_q_CC,avl_CC,lookahead\n")
