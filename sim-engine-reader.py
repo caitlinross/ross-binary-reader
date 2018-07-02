@@ -14,8 +14,8 @@ kp_out = open(stem + "-kp-output.csv", "w")
 lp_out = open(stem + "-lp-output.csv", "w")
 
 # write out headers
-pe_out.write("PE,VT,RT,event_proc,ev_abort,ev_rb,rb_total,rb_secondary,fc_attempts,pq_size,nsend_net,nrecv_net,num_gvt,ev_ties,allred_count,efficiency,net_read_CC,gvt_CC,fossil_collect_CC,event_abort_CC,event_process_CC,pq_CC,rollback_CC,cancel_q_CC,avl_CC,buddy_CC,lz4_CC\n")
-kp_out.write("KP,PE,VT,RT,event_proc,ev_abort,ev_rb,rb_total,rb_secondary,nsend_net,nrecv_net,time_ahead_gvt,efficiency\n")
+pe_out.write("PE,VT,RT,event_proc,ev_abort,ev_rb,rb_total,rb_secondary,fc_attempts,pq_size,nsend_net,nrecv_net,num_gvt,ev_ties,allred_count,max_opt_lookahead,efficiency,net_read_CC,gvt_CC,fossil_collect_CC,event_abort_CC,event_process_CC,pq_CC,rollback_CC,cancel_q_CC,avl_CC,buddy_CC,lz4_CC\n")
+kp_out.write("KP,PE,VT,RT,event_proc,ev_abort,ev_rb,rb_total,rb_secondary,nsend_net,nrecv_net,virtual_time_diff,avg_vt_diff,efficiency\n")
 lp_out.write("LP,KP,PE,VT,RT,event_proc,ev_abort,ev_rb,nsend_net,nrecv_net,efficiency\n")
 
 metadata_sz = 24
@@ -40,9 +40,9 @@ with open(filename, "rb") as binary_file:
         struct_str = ""
 
         if metadata[flag] == 0: # PE data
-            struct_str = "@13I12f"
+            struct_str = "@13IQ12f"
         elif metadata[flag] == 1: # KP data
-            struct_str = "@9I2f"
+            struct_str = "@9I3f"
         elif metadata[flag] == 2: # LP data
             struct_str = "@8If"
         elif metadata[flag] == 3: #  model data
