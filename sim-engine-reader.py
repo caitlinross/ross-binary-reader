@@ -4,6 +4,7 @@ import argparse
 
 ap = argparse.ArgumentParser()
 ap.add_argument("-f", "--filename", required=True, help="binary file to convert")
+ap.add_argument("-m", "--machine_map", required=False, help="a csv of machine mapping data (csv: MPI rank,node id, socket id, core id)")
 args = vars(ap.parse_args())
 
 filename = args["filename"]
@@ -13,10 +14,29 @@ pe_out = open(stem + "-pe-output.csv", "w")
 kp_out = open(stem + "-kp-output.csv", "w")
 lp_out = open(stem + "-lp-output.csv", "w")
 
+machine_map = {}
+
+if "machine_map" in args:
+    machine_data = open(args["machine_map"], "r")
+    for line in machine_data:
+        if not line.startswith("#"):
+            tokens=line.strip().split(",")
+            machine_map[int(tokens[0])] = {}
+            machine_map[int(tokens[0])]["node"] = tokens[1]
+            machine_map[int(tokens[0])]["socket"] = tokens[2]
+            machine_map[int(tokens[0])]["core"] = tokens[3]
+
+    machine_data.close()
+
+print (machine_map)
 # write out headers
+if machine_map:
+    pe_out.write("node,socket,core,")
+    kp_out.write("node,socket,core,")
+    lp_out.write("node,socket,core,")
 pe_out.write("PE,VT,RT,event_proc,ev_abort,ev_rb,rb_total,rb_secondary,fc_attempts,pq_size,nsend_net,nrecv_net,num_gvt,ev_ties,allred_count,max_opt_lookahead,efficiency,net_read_CC,gvt_CC,fossil_collect_CC,event_abort_CC,event_process_CC,pq_CC,rollback_CC,cancel_q_CC,avl_CC,buddy_CC,lz4_CC\n")
-kp_out.write("KP,PE,VT,RT,event_proc,ev_abort,ev_rb,rb_total,rb_secondary,nsend_net,nrecv_net,virtual_time_diff,avg_vt_diff,efficiency\n")
-lp_out.write("LP,KP,PE,VT,RT,event_proc,ev_abort,ev_rb,nsend_net,nrecv_net,efficiency\n")
+kp_out.write("PE,KP,VT,RT,event_proc,ev_abort,ev_rb,rb_total,rb_secondary,nsend_net,nrecv_net,virtual_time_diff,avg_vt_diff,efficiency\n")
+lp_out.write("PE,KP,LP,VT,RT,event_proc,ev_abort,ev_rb,nsend_net,nrecv_net,efficiency\n")
 
 metadata_sz = 24
 
@@ -56,6 +76,10 @@ with open(filename, "rb") as binary_file:
 
         if metadata[flag] == 0: # PE data
             pe_data = []
+            if machine_map:
+                pe_data.append(machine_map[data[0]]["node"])
+                pe_data.append(machine_map[data[0]]["socket"])
+                pe_data.append(machine_map[data[0]]["core"])
             pe_data.append(data[0])
             pe_data.extend(metadata[ts:])
             pe_data.extend(data[1:])
@@ -63,6 +87,10 @@ with open(filename, "rb") as binary_file:
             pe_out.write("\n")
         elif metadata[flag] == 1: # KP data
             kp_data = []
+            if machine_map:
+                kp_data.append(machine_map[data[0]]["node"])
+                kp_data.append(machine_map[data[0]]["socket"])
+                kp_data.append(machine_map[data[0]]["core"])
             kp_data.extend(data[0:2])
             kp_data.extend(metadata[ts:])
             kp_data.extend(data[2:])
@@ -70,6 +98,10 @@ with open(filename, "rb") as binary_file:
             kp_out.write("\n")
         elif metadata[flag] == 2: # LP data
             lp_data = []
+            if machine_map:
+                lp_data.append(machine_map[data[0]]["node"])
+                lp_data.append(machine_map[data[0]]["socket"])
+                lp_data.append(machine_map[data[0]]["core"])
             lp_data.extend(data[0:3])
             lp_data.extend(metadata[ts:])
             lp_data.extend(data[3:])
