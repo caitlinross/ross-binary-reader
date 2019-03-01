@@ -54,7 +54,7 @@ def setup_model_output():
     radix = int(args["radix"])
     router_out = open(stem + "-router-output.csv", "w")
     terminal_out = open(stem + "-terminal_output.csv", "w")
-    terminal_out.write("PE,KP,LP,end_time,terminal_id,fin_chunks,data_size,fin_hops,fin_chunks_time,busy_time,end_time\n")
+    terminal_out.write("PE,KP,LP,end_time,terminal_id,fin_chunks,data_size,fin_hops,fin_chunks_time,busy_time\n")
     router_out.write("PE,KP,LP,end_time,router_id")
     for i in range(radix):
         router_out.write(",busy_time_" + str(i))
@@ -133,6 +133,7 @@ with open(filename, "rb") as binary_file:
     nkp = file_md[1];
     print(nkp)
     inst_mode = file_md[2]
+    print(inst_mode)
     vt = last_gvt
     if inst_mode == 2: # VTS
         vt = vts
@@ -143,6 +144,7 @@ with open(filename, "rb") as binary_file:
     while (pos < num_bytes):
         binary_file.seek(pos)
         metadata = struct.unpack("@3dI5i", binary_file.read(metadata_sz))
+        #print(metadata)
         pos += metadata_sz
         binary_file.seek(pos)
         struct_str = ""
