@@ -1,67 +1,24 @@
-## Reader for ROSS data collection binary files
+## Reader for ROSS Instrumentation binary files
 
-So far this is a pretty simple reader that just takes the binary output from 
+Simple reader that just takes the binary output from
 ROSS and converts it to a CSV.
-
-### Build
-
-Just type 'make' when you're in the reader directory. 
-If you're running on Linux on an x86 system, no flags needed.
-If you're running this on a BG/Q, you need to add the -DBGQ flag to the Makefile.
-If you're running this on a Mac, add -DMACOS, because Macs do not have the argp header needed for 
-the runtime argument library used.
-
-NOTE 0: You can't read data created on a system with a different endianness
-from the system you are running the reader on (i.e., don't read BG/Q data while
-running the reader on an x86 system).
-
-NOTE 1: I haven't actually kept testing on Mac as I no longer do development on the Mac.
-
 
 ### Running the reader
 
-You need the ross-stats-README.txt file that is output
-automatically by ROSS as it has some information that the reader needs.  
-It is expected to be in the same directory as your binary files.  
-Also if you're reading model level sampling data, you need an additional lp-mapping.txt file in the directory.
-This is a csv of the format `PE,KP,LP,LP_type`
+For either reader, `--help` can be used to see the available commands.
 
-You can type ./ross-reader --help to see an explanation for the available 
-options, which are also explained here.
+##### For Event Traces
 
-`-f` or `--filename` is for inputting the filename of the binary file to be read.
+Use `event-reader.py` to read files from event tracing.
+The only option here for this reader is `--filename`.
 
-`-t` or `--filetype` is for the type of file
+The reader assumes that either there is no model data, or that
+the only model data saved is a signed int for the value of event type.
 
-File types:
-- 0 GVT-based instrumentation
-- 1 Real time sampling
-- 2 event tracing
-- 3 model level sampling data
+##### All other Instrumentation modes
 
-The above arguments are required, the following are optional:
+Use `instrumentation-reader.py` to read simulation engine and/or model data
+from any of the 3 time sampling modes.
 
-`-c` or `--combine-events` is for use with the event trace data.  It will bin the event trace by
-source, destination LP pairs  over an interval of virtual time.  It also gives the count of events
-in that bin. This is useful if your event trace is really large and you'd like to have a smaller file
-(at the cost of coarser grained data of course).
-
-`-b` or `--bin-size` is to change the virtual time bin size.  Default is 10000.
-
-NOTE 2: Features related to these optional arguments are a work in progress.  They may not work correctly.
-
-### Output
-Everything is output as a text file delimited by commas. The event tracing always outputs one file.
-If the ROSS instrumentation was selected to run with output only at a
-PE level, then only one file is output for the GVT-based data.  Two are output for the real time, because
-the difference in virtual time and GVT metric is always reported at the KP level.  So in this case, there will be a file
-for the PE metrics and one for the KP metrics.  If the ROSS instrumentation was set to do the KP/LP level metrics,
-then both the GVT-based and real time output has one file each for PE, KP, and LP level metrics.  
-
-The text files are saved to the same directory as the binary files.
-
-### Other notes
-The reader needs the README file that is output by the instrumentation, because it contains data about the simulation the
-reader needs to correctly read the file.
-The reader expects that this file has the same naming convention as the data file (which it will, unless you change
-the file name manually).  
+Some support is built in for reading from the CODES dragonfly, slimfly, and fat-tree models.
+If model data is collected for these models use the `--network` and `--radix` options.
