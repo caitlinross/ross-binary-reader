@@ -80,16 +80,18 @@ def setup_fattree_model_output():
 
 model_name_size = 16
 
-metadata_sz = 48
+metadata_sz = 56
 last_gvt = 0
 vts = 1
 rts = 2
 peid = 3
-has_pe = 4
-has_kp = 5
-has_lp = 6
-has_model = 7
-num_model_lps = 8
+kp_gid = 4
+has_pe = 5
+has_kp = 6
+has_lp = 7
+has_model = 8
+num_model_lps = 9
+md_struct_str = "@3dI7i"
 
 m_md_sz = 28
 m_name = 0
@@ -177,6 +179,7 @@ def terminal_write(pos):
 with open(filename, "rb") as binary_file:
     binary_file.seek(0, 2)
     num_bytes = binary_file.tell()
+    #num_bytes=20000000
     print("num_bytes == " + str(num_bytes))
 
     binary_file.seek(0)
@@ -197,7 +200,7 @@ with open(filename, "rb") as binary_file:
     pos = file_md_sz
     while (pos < num_bytes):
         binary_file.seek(pos)
-        metadata = struct.unpack("@3dI5i", binary_file.read(metadata_sz))
+        metadata = struct.unpack(md_struct_str, binary_file.read(metadata_sz))
         #print(metadata)
         pos += metadata_sz
         binary_file.seek(pos)
